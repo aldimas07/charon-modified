@@ -244,14 +244,21 @@ export async function monitorPositions() {
   if (pubkey && positions.some(p => p.execution_mode === 'live')) {
     walletPnlData = await fetchJupiterWalletPnl(pubkey);
   }
-  for (const position of positions) {
+
+  // Parallel: check all positions simultaneously instead of sequentially
+  const results = await Promise.allSettled(positions.map(async (position) => {
     const jupiterPnl = position.execution_mode === 'live'
       ? (walletPnlData[position.mint]?.pnl || null)
       : null;
-    const result = await refreshPosition(position, { autoExit: true, jupiterPnl }).catch((err) => {
-      console.log(`[position] ${position.id} ${err.message}`);
-      return null;
-    });
-    if (result?.exitReason) await sendPositionExit(result);
+    return refreshPosition(position, { autoExit: true, jupiterPnl });
+  }));
+
+  // Process exits
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value?.exitReason) {
+      await sendPositionExit(result.value);
+    } else if (result.status === 'rejected') {
+      console.log(`[position] refresh failed: ${result.reason?.message}`);
+    }
   }
 }
