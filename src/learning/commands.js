@@ -1,6 +1,7 @@
 import { bot } from '../telegram/bot.js';
 import { now, formatWindow, parseWindowMs } from '../utils.js';
 import { escapeHtml } from '../format.js';
+import { setting } from '../db/settings.js';
 import { db } from '../db/connection.js';
 import { summarizeLearningWindow } from './summary.js';
 import { generateLessons, storeLearningRun } from './lessons.js';
@@ -26,8 +27,16 @@ export async function sendLessons(chatId) {
     ORDER BY id DESC
     LIMIT 10
   `).all();
-  const text = rows.length
-    ? rows.map((row, index) => `${index + 1}. ${escapeHtml(row.lesson)}`).join('\n')
-    : 'No active lessons yet. Run /learn 12h after some dry-run exits.';
-  return bot.sendMessage(chatId, `🧠 <b>Active Lessons</b>\n\n${text}`, { parse_mode: 'HTML' });
+  const blocked = (setting('blocked_routes', '') || '').split(',').filter(Boolean);
+  const parts = [];
+  if (blocked.length) {
+    parts.push(`🚫 <b>Blocked routes:</b> ${blocked.map(r => escapeHtml(r)).join(', ')}`);
+    parts.push('');
+  }
+  if (rows.length) {
+    parts.push(...rows.map((row, index) => `${index + 1}. ${escapeHtml(row.lesson)}`));
+  } else {
+    parts.push('No active lessons yet. Run /learn 12h after some dry-run exits.');
+  }
+  return bot.sendMessage(chatId, `🧠 <b>Active Lessons</b>\n\n${parts.join('\n')}`, { parse_mode: 'HTML' });
 }

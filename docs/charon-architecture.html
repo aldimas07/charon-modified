@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Charon Trading Bot — Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#020617;color:#e2e8f0;font-family:'JetBrains Mono',monospace;min-height:100vh;padding:40px 20px}
+.header{text-align:center;margin-bottom:40px}
+.header h1{font-size:28px;font-weight:700;color:#f8fafc;margin-bottom:8px}
+.header .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:10px;animation:pulse 2s infinite}
+.header .dot.green{background:#34d399}
+.header .dot.cyan{background:#22d3ee}
+.header p{color:#94a3b8;font-size:13px}
+.diagram-container{max-width:1200px;margin:0 auto 40px;background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:24px;overflow-x:auto}
+.diagram-title{font-size:16px;font-weight:600;color:#f8fafc;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.diagram-title .badge{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:400}
+.diagram-title .badge.before{background:rgba(136,19,55,0.3);color:#fb7185;border:1px solid rgba(136,19,55,0.5)}
+.diagram-title .badge.after{background:rgba(6,78,59,0.3);color:#34d399;border:1px solid rgba(6,78,59,0.5)}
+svg{width:100%;height:auto}
+text{font-family:'JetBrains Mono',monospace}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;max-width:1200px;margin:0 auto 30px}
+.card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:20px}
+.card-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.card-dot{width:8px;height:8px;border-radius:50%}
+.card-dot.cyan{background:#22d3ee}
+.card-dot.emerald{background:#34d399}
+.card-dot.violet{background:#a78bfa}
+.card-dot.amber{background:#fbbf24}
+.card-dot.rose{background:#fb7185}
+.card h3{font-size:13px;font-weight:600;color:#f8fafc}
+.card ul{list-style:none;font-size:11px;color:#94a3b8;line-height:1.8}
+.card ul li::before{content:"→ ";color:#475569}
+.footer{text-align:center;color:#475569;font-size:10px;margin-top:20px}
+.legend{margin-top:16px;display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:10px;color:#94a3b8}
+.legend-color{width:12px;height:12px;border-radius:3px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span class="dot green"></span>Charon Trading Bot</h1>
+  <p>Architecture — Before & After Phase 1-3 Implementation</p>
+</div>
+
+<!-- ═══════════════════════ BEFORE ═══════════════════════ -->
+<div class="diagram-container">
+  <div class="diagram-title">
+    <span class="badge before">BEFORE</span>
+    Original Architecture
+  </div>
+  <svg viewBox="0 0 1100 620" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+      </pattern>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+      </marker>
+      <marker id="arrow-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#22d3ee"/>
+      </marker>
+    </defs>
+
+    <!-- Background -->
+    <rect width="1100" height="620" fill="#020617"/>
+    <rect width="1100" height="620" fill="url(#grid)"/>
+
+    <!-- ── External Sources ── -->
+    <rect x="30" y="30" width="200" height="50" rx="6" fill="#0f172a" stroke="#94a3b8" stroke-width="1.5"/>
+    <rect x="30" y="30" width="200" height="50" rx="6" fill="rgba(30,41,59,0.5)"/>
+    <text x="130" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">Signal Server</text>
+    <text x="130" y="67" text-anchor="middle" fill="#64748b" font-size="9">thecharon.xyz</text>
+
+    <rect x="270" y="30" width="200" height="50" rx="6" fill="#0f172a" stroke="#94a3b8" stroke-width="1.5"/>
+    <rect x="270" y="30" width="200" height="50" rx="6" fill="rgba(30,41,59,0.5)"/>
+    <text x="370" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">GMGN API</text>
+    <text x="370" y="67" text-anchor="middle" fill="#64748b" font-size="9">Token info, mcap, holders</text>
+
+    <rect x="510" y="30" width="200" height="50" rx="6" fill="#0f172a" stroke="#94a3b8" stroke-width="1.5"/>
+    <rect x="510" y="30" width="200" height="50" rx="6" fill="rgba(30,41,59,0.5)"/>
+    <text x="610" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">Jupiter API</text>
+    <text x="610" y="67" text-anchor="middle" fill="#64748b" font-size="9">Price, chart, holders</text>
+
+    <rect x="750" y="30" width="200" height="50" rx="6" fill="#0f172a" stroke="#94a3b8" stroke-width="1.5"/>
+    <rect x="750" y="30" width="200" height="50" rx="6" fill="rgba(30,41,59,0.5)"/>
+    <text x="850" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">Twitter API</text>
+    <text x="850" y="67" text-anchor="middle" fill="#64748b" font-size="9">Narrative, engagement</text>
+
+    <!-- ── Arrows from sources ── -->
+    <line x1="130" y1="80" x2="350" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="370" y1="80" x2="400" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="610" y1="80" x2="500" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="850" y1="80" x2="550" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- ── Candidate Builder ── -->
+    <rect x="200" y="130" width="500" height="70" rx="6" fill="#0f172a" stroke="#34d399" stroke-width="1.5"/>
+    <rect x="200" y="130" width="500" height="70" rx="6" fill="rgba(6,78,59,0.4)"/>
+    <text x="450" y="158" text-anchor="middle" fill="#34d399" font-size="13" font-weight="600">Candidate Builder</text>
+    <text x="450" y="178" text-anchor="middle" fill="#64748b" font-size="9">buildCandidate() — merge GMGN + Jupiter + Twitter data</text>
+    <text x="450" y="190" text-anchor="middle" fill="#64748b" font-size="9">filterCandidate() — mcap, holders, trending filters</text>
+
+    <!-- ── LLM Decision ── -->
+    <rect x="250" y="240" width="400" height="70" rx="6" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"/>
+    <rect x="250" y="240" width="400" height="70" rx="6" fill="rgba(8,51,68,0.4)"/>
+    <text x="450" y="268" text-anchor="middle" fill="#22d3ee" font-size="13" font-weight="600">LLM Decision</text>
+    <text x="450" y="285" text-anchor="middle" fill="#64748b" font-size="9">deepseek-v3.2 → BUY / WATCH / PASS</text>
+    <text x="450" y="297" text-anchor="middle" fill="#64748b" font-size="9">llm_min_confidence: 80</text>
+
+    <!-- Arrow candidate → LLM -->
+    <line x1="450" y1="200" x2="450" y2="240" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- ── Guardrails ── -->
+    <rect x="250" y="350" width="400" height="50" rx="6" fill="#0f172a" stroke="#fb7185" stroke-width="1.5"/>
+    <rect x="250" y="350" width="400" height="50" rx="6" fill="rgba(136,19,55,0.3)"/>
+    <text x="450" y="372" text-anchor="middle" fill="#fb7185" font-size="12" font-weight="600">Guardrails</text>
+    <text x="450" y="388" text-anchor="middle" fill="#64748b" font-size="9">confidence ≥ 80 · max 5 positions · mcap 8K-50K</text>
+
+    <!-- Arrow LLM → Guardrails -->
+    <line x1="450" y1="310" x2="450" y2="350" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- ── Execution ── -->
+    <rect x="300" y="440" width="300" height="60" rx="6" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
+    <rect x="300" y="440" width="300" height="60" rx="6" fill="rgba(76,29,149,0.4)"/>
+    <text x="450" y="465" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">Execution</text>
+    <text x="450" y="482" text-anchor="middle" fill="#64748b" font-size="9">dry_run · Jupiter swap · single sell</text>
+
+    <!-- Arrow guardrails → execution -->
+    <line x1="450" y1="400" x2="450" y2="440" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- ── Position Monitor ── -->
+    <rect x="700" y="240" width="250" height="70" rx="6" fill="#0f172a" stroke="#fbbf24" stroke-width="1.5"/>
+    <rect x="700" y="240" width="250" height="70" rx="6" fill="rgba(120,53,15,0.3)"/>
+    <text x="825" y="265" text-anchor="middle" fill="#fbbf24" font-size="12" font-weight="600">Position Monitor</text>
+    <text x="825" y="282" text-anchor="middle" fill="#64748b" font-size="9">10s poll · TP/SL/Trailing check</text>
+    <text x="825" y="294" text-anchor="middle" fill="#64748b" font-size="9">mcap ratio → PnL estimate</text>
+
+    <!-- Arrow execution → monitor -->
+    <line x1="600" y1="470" x2="700" y2="280" stroke="#475569" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+
+    <!-- ── Telegram ── -->
+    <rect x="800" y="440" width="200" height="60" rx="6" fill="#0f172a" stroke="#fb923c" stroke-width="1.5"/>
+    <rect x="800" y="440" width="200" height="60" rx="6" fill="rgba(251,146,60,0.3)"/>
+    <text x="900" y="465" text-anchor="middle" fill="#fb923c" font-size="12" font-weight="600">Telegram Bot</text>
+    <text x="900" y="482" text-anchor="middle" fill="#64748b" font-size="9">/positions · /candidate · /learn</text>
+
+    <!-- Arrow monitor → telegram -->
+    <line x1="825" y1="310" x2="900" y2="440" stroke="#475569" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+
+    <!-- ── SQLite ── -->
+    <rect x="30" y="440" width="200" height="60" rx="6" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
+    <rect x="30" y="440" width="200" height="60" rx="6" fill="rgba(76,29,149,0.4)"/>
+    <text x="130" y="465" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">SQLite</text>
+    <text x="130" y="482" text-anchor="middle" fill="#64748b" font-size="9">positions · decisions · lessons</text>
+
+    <!-- ── Issues Callout ── -->
+    <rect x="30" y="540" width="1040" height="60" rx="6" fill="#0f172a" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
+    <text x="550" y="560" text-anchor="middle" fill="#fb7185" font-size="11" font-weight="600">⚠ Issues</text>
+    <text x="550" y="578" text-anchor="middle" fill="#64748b" font-size="9">No on-chain pricing · mcap from API only · 21 active lessons → LLM too conservative · llm_min_confidence=80 blocks BUYs · No bonding curve math · No price impact filter · No sell overflow protection · No event monitoring</text>
+  </svg>
+</div>
+
+<!-- ═══════════════════════ AFTER ═══════════════════════ -->
+<div class="diagram-container">
+  <div class="diagram-title">
+    <span class="badge after">AFTER</span>
+    With Phase 1-3 Implementation
+  </div>
+  <svg viewBox="0 0 1100 850" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <pattern id="grid2" width="40" height="40" patternUnits="userSpaceOnUse">
+        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+      </pattern>
+      <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+      </marker>
+      <marker id="arrow-new" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399"/>
+      </marker>
+    </defs>
+
+    <rect width="1100" height="850" fill="#020617"/>
+    <rect width="1100" height="850" fill="url(#grid2)"/>
+
+    <!-- ── External Sources ── -->
+    <rect x="30" y="30" width="170" height="50" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+    <text x="115" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">Signal Server</text>
+    <text x="115" y="67" text-anchor="middle" fill="#64748b" font-size="9">thecharon.xyz</text>
+
+    <rect x="220" y="30" width="170" height="50" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+    <text x="305" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">GMGN + Jupiter</text>
+    <text x="305" y="67" text-anchor="middle" fill="#64748b" font-size="9">API enrichment</text>
+
+    <rect x="410" y="30" width="170" height="50" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+    <text x="495" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">Twitter API</text>
+    <text x="495" y="67" text-anchor="middle" fill="#64748b" font-size="9">Narrative</text>
+
+    <!-- NEW: Solana RPC -->
+    <rect x="600" y="30" width="200" height="50" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+    <text x="700" y="48" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">✦ Solana RPC (Helius)</text>
+    <text x="700" y="65" text-anchor="middle" fill="#64748b" font-size="9">Bonding curve · AMM pool</text>
+
+    <!-- NEW: PumpAMM -->
+    <rect x="820" y="30" width="170" height="50" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+    <text x="905" y="48" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">✦ PumpAMM Program</text>
+    <text x="905" y="65" text-anchor="middle" fill="#64748b" font-size="9">pAMMBay6...FMfXEA</text>
+
+    <!-- ── Arrows from sources ── -->
+    <line x1="115" y1="80" x2="300" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow2)"/>
+    <line x1="305" y1="80" x2="350" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow2)"/>
+    <line x1="495" y1="80" x2="450" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow2)"/>
+    <line x1="700" y1="80" x2="500" y2="130" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-new)"/>
+    <line x1="905" y1="80" x2="550" y2="130" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-new)"/>
+
+    <!-- ── Candidate Builder (ENHANCED) ── -->
+    <rect x="150" y="130" width="600" height="90" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+    <text x="450" y="155" text-anchor="middle" fill="#34d399" font-size="13" font-weight="600">Candidate Builder (Enhanced)</text>
+    <text x="450" y="172" text-anchor="middle" fill="#94a3b8" font-size="9">buildCandidate() — GMGN + Jupiter + Twitter + ✦ Bonding Curve + ✦ AMM Pool</text>
+    <text x="450" y="186" text-anchor="middle" fill="#94a3b8" font-size="9">filterCandidate() — mcap · holders · trending · ✦ price impact · ✦ graduation</text>
+    <text x="450" y="200" text-anchor="middle" fill="#64748b" font-size="8">✦ NEW: on-chain mcap · graduation % · spread · price impact bps</text>
+    <text x="450" y="212" text-anchor="middle" fill="#64748b" font-size="8">✦ NEW: AMM pool detection for graduated tokens</text>
+
+    <!-- ── LLM Decision (TUNED) ── -->
+    <rect x="200" y="260" width="500" height="80" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+    <text x="450" y="285" text-anchor="middle" fill="#22d3ee" font-size="13" font-weight="600">LLM Decision (Tuned)</text>
+    <text x="450" y="302" text-anchor="middle" fill="#94a3b8" font-size="9">deepseek-v4-flash · balanced prompt · dry-run learning mode</text>
+    <text x="450" y="316" text-anchor="middle" fill="#94a3b8" font-size="9">✦ sees bonding curve data: graduation %, price impact, spread</text>
+    <text x="450" y="330" text-anchor="middle" fill="#64748b" font-size="8">✦ llm_min_confidence: 65 (was 80) · 9 active lessons (was 21)</text>
+
+    <!-- Arrow candidate → LLM -->
+    <line x1="450" y1="220" x2="450" y2="260" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-new)"/>
+
+    <!-- ── Guardrails (RELAXED) ── -->
+    <rect x="200" y="380" width="500" height="50" rx="6" fill="rgba(6,78,59,0.3)" stroke="#34d399" stroke-width="1.5"/>
+    <text x="450" y="402" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600">Guardrails (Relaxed)</text>
+    <text x="450" y="418" text-anchor="middle" fill="#64748b" font-size="9">✦ confidence ≥ 65 · max 5 positions · mcap 5K-50K · graduated_trending unblocked</text>
+
+    <!-- Arrow LLM → Guardrails -->
+    <line x1="450" y1="340" x2="450" y2="380" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+    <!-- ── Execution (ENHANCED) ── -->
+    <rect x="200" y="470" width="500" height="70" rx="6" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+    <text x="450" y="495" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">Execution (Enhanced)</text>
+    <text x="450" y="512" text-anchor="middle" fill="#94a3b8" font-size="9">dry_run · Jupiter swap</text>
+    <text x="450" y="526" text-anchor="middle" fill="#64748b" font-size="8">✦ sell overflow protection · ✦ chunked sells · ✦ maxSafeSellAmount</text>
+
+    <!-- Arrow guardrails → execution -->
+    <line x1="450" y1="430" x2="450" y2="470" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+    <!-- ── Position Monitor ── -->
+    <rect x="750" y="260" width="250" height="80" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+    <text x="875" y="285" text-anchor="middle" fill="#fbbf24" font-size="12" font-weight="600">Position Monitor</text>
+    <text x="875" y="302" text-anchor="middle" fill="#64748b" font-size="9">10s poll · TP/SL/Trailing</text>
+    <text x="875" y="318" text-anchor="middle" fill="#64748b" font-size="9">✦ bonding curve mcap tracking</text>
+    <text x="875" y="330" text-anchor="middle" fill="#64748b" font-size="9">✦ chunked sell on overflow</text>
+
+    <!-- ── Event Monitor (NEW) ── -->
+    <rect x="750" y="380" width="250" height="90" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+    <text x="875" y="400" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600">✦ Event Monitor (New)</text>
+    <text x="875" y="418" text-anchor="middle" fill="#64748b" font-size="9">30s polling · watched mints</text>
+    <text x="875" y="432" text-anchor="middle" fill="#64748b" font-size="9">decode Buy/Sell events</text>
+    <text x="875" y="446" text-anchor="middle" fill="#64748b" font-size="9">update BC cache from events</text>
+    <text x="875" y="460" text-anchor="middle" fill="#64748b" font-size="9">detect graduation → AMM pool</text>
+
+    <!-- Arrow execution → monitor -->
+    <line x1="650" y1="500" x2="750" y2="300" stroke="#475569" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow2)"/>
+
+    <!-- Arrow event monitor → telegram -->
+    <line x1="875" y1="470" x2="900" y2="580" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-new)"/>
+
+    <!-- ── Telegram (ENHANCED) ── -->
+    <rect x="750" y="580" width="250" height="70" rx="6" fill="rgba(251,146,60,0.3)" stroke="#fb923c" stroke-width="1.5"/>
+    <text x="875" y="605" text-anchor="middle" fill="#fb923c" font-size="12" font-weight="600">Telegram Bot (Enhanced)</text>
+    <text x="875" y="622" text-anchor="middle" fill="#64748b" font-size="9">/positions · /candidate · /learn</text>
+    <text x="875" y="636" text-anchor="middle" fill="#64748b" font-size="8">✦ grad % · impact bps · AMM info · dump alerts</text>
+
+    <!-- ── Event Alert Handlers ── -->
+    <rect x="750" y="690" width="250" height="50" rx="6" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="1.5"/>
+    <text x="875" y="712" text-anchor="middle" fill="#fb7185" font-size="11" font-weight="600">Alert Handlers</text>
+    <text x="875" y="728" text-anchor="middle" fill="#64748b" font-size="9">🔴 Dump · 🎓 Graduation · 🟢 Large Buy</text>
+
+    <!-- Arrow telegram → alerts -->
+    <line x1="875" y1="650" x2="875" y2="690" stroke="#475569" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow2)"/>
+
+    <!-- ── SQLite ── -->
+    <rect x="30" y="580" width="200" height="60" rx="6" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+    <text x="130" y="605" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">SQLite</text>
+    <text x="130" y="622" text-anchor="middle" fill="#64748b" font-size="9">positions · decisions · lessons</text>
+    <text x="130" y="636" text-anchor="middle" fill="#64748b" font-size="8">✦ bonding curve snapshots</text>
+
+    <!-- ── pumpfunMath.js (NEW MODULE) ── -->
+    <rect x="30" y="260" width="140" height="170" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+    <text x="100" y="282" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">✦ pumpfunMath</text>
+    <text x="100" y="300" text-anchor="middle" fill="#64748b" font-size="8">Bonding Curve</text>
+    <text x="100" y="314" text-anchor="middle" fill="#64748b" font-size="8">• getBuyTokenAmount</text>
+    <text x="100" y="328" text-anchor="middle" fill="#64748b" font-size="8">• getSellSolReceived</text>
+    <text x="100" y="342" text-anchor="middle" fill="#64748b" font-size="8">• priceImpact</text>
+    <text x="100" y="356" text-anchor="middle" fill="#64748b" font-size="8">• graduationProgress</text>
+    <text x="100" y="374" text-anchor="middle" fill="#64748b" font-size="8">AMM Pool</text>
+    <text x="100" y="388" text-anchor="middle" fill="#64748b" font-size="8">• fetchAmmPool</text>
+    <text x="100" y="402" text-anchor="middle" fill="#64748b" font-size="8">• detectGraduation</text>
+    <text x="100" y="416" text-anchor="middle" fill="#64748b" font-size="8">• batchEnrich</text>
+
+    <!-- Arrow pumpfunMath → candidate builder -->
+    <line x1="170" y1="280" x2="150" y2="175" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-new)"/>
+
+    <!-- ── Callout: What Changed ── -->
+    <rect x="30" y="700" width="680" height="130" rx="6" fill="#0f172a" stroke="#34d399" stroke-width="1" stroke-dasharray="4,4"/>
+    <text x="370" y="722" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600">✦ What Changed (Phase 1-3)</text>
+    <text x="370" y="742" text-anchor="middle" fill="#94a3b8" font-size="9">Phase 1: Bonding curve math · price impact filter · graduation progress · tuned LLM prompt · relaxed guardrails</text>
+    <text x="370" y="758" text-anchor="middle" fill="#94a3b8" font-size="9">Phase 2: Sell overflow protection · chunked sells · event decoder (19 types) · real-time event monitor</text>
+    <text x="370" y="774" text-anchor="middle" fill="#94a3b8" font-size="9">Phase 3: AMM pool detection · graduated token pricing · batch enrichment · event-driven cache updates</text>
+    <text x="370" y="798" text-anchor="middle" fill="#64748b" font-size="9">Result: LLM sees on-chain data → smarter BUY decisions · price impact rejects illiquid tokens ·</text>
+    <text x="370" y="814" text-anchor="middle" fill="#64748b" font-size="9">sell overflow prevents token loss · event monitor catches dumps & graduations in real-time</text>
+  </svg>
+</div>
+
+<!-- ═══════════════════════ COMPARISON CARDS ═══════════════════════ -->
+<div class="cards">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-dot rose"></div>
+      <h3>Before: Data Sources</h3>
+    </div>
+    <ul>
+      <li>GMGN API — market cap, holders (approximate)</li>
+      <li>Jupiter API — price, chart (delayed)</li>
+      <li>Twitter API — narrative</li>
+      <li>No on-chain bonding curve data</li>
+      <li>No AMM pool detection</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-dot emerald"></div>
+      <h3>After: Data Sources</h3>
+    </div>
+    <ul>
+      <li>GMGN + Jupiter + Twitter (same)</li>
+      <li>✦ Solana RPC — bonding curve reserves (exact)</li>
+      <li>✦ PumpAMM — graduated pool reserves</li>
+      <li>✦ Event decoder — real-time trade data</li>
+      <li>✦ Batch fetch — 100 tokens per RPC call</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-dot cyan"></div>
+      <h3>Before: LLM</h3>
+    </div>
+    <ul>
+      <li>deepseek-v3.2 — conservative prompt</li>
+      <li>21 active lessons (many restrictive)</li>
+      <li>llm_min_confidence: 80</li>
+      <li>No bonding curve context</li>
+      <li>Result: 100% WATCH/PASS for 6+ hours</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-dot emerald"></div>
+      <h3>After: LLM</h3>
+    </div>
+    <ul>
+      <li>deepseek-v4-flash — balanced prompt</li>
+      <li>9 active lessons (constructive only)</li>
+      <li>✦ llm_min_confidence: 65</li>
+      <li>✦ Sees graduation %, price impact, spread</li>
+      <li>Result: BUY conf 72 → positions created</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-dot rose"></div>
+      <h3>Before: Execution</h3>
+    </div>
+    <ul>
+      <li>Single sell — no overflow protection</li>
+      <li>mcap from API only (can be stale)</li>
+      <li>No price impact check</li>
+      <li>No event monitoring</li>
+      <li>Position PnL from mcap ratio estimate</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-dot emerald"></div>
+      <h3>After: Execution</h3>
+    </div>
+    <ul>
+      <li>✦ Chunked sells — overflow safe</li>
+      <li>✦ On-chain mcap from reserves (exact)</li>
+      <li>✦ Price impact filter (>5% reject)</li>
+      <li>✦ Event monitor — dump/graduation alerts</li>
+      <li>✦ AMM pool detection for graduated tokens</li>
+    </ul>
+  </div>
+</div>
+
+<div class="footer">
+  Charon Trading Bot — Architecture Diagram — Generated 2026-05-16
+</div>
+
+</body>
+</html>

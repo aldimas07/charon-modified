@@ -39,6 +39,7 @@ export async function fetchServerSignals() {
     const res = await axios.get(url.toString(), {
       timeout: 10_000,
       headers: SIGNAL_SERVER_KEY ? { 'x-api-key': SIGNAL_SERVER_KEY } : {},
+      family: 4,
     });
     const signals = res.data?.signals || [];
 

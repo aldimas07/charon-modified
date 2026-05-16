@@ -6,6 +6,7 @@ import { storeSignalEvent } from './trending.js';
 import { graduated } from './graduated.js';
 import { trending } from './trending.js';
 import { buildFeeSnapshot } from '../pipeline/candidateBuilder.js';
+import { recordFeeClaim } from './feeVelocity.js';
 
 export const seenFeeClaims = new Map();
 let candidateHandler = null;
@@ -17,6 +18,10 @@ export function setCandidateHandler(fn) {
 export async function handleFeeClaim(fee, signature) {
   const sol = lamToSol(fee.distributed);
   if (sol < numSetting('min_fee_claim_sol', 2)) return;
+
+  // Record for velocity tracking (even if not a candidate yet)
+  recordFeeClaim(fee.mint, fee.distributed);
+
   const graduatedCoin = graduated.get(fee.mint) || null;
   const trendingToken = boolSetting('trending_enabled', true) ? trending.get(fee.mint) || null : null;
   if (!graduatedCoin && !trendingToken) return;

@@ -1,5 +1,5 @@
 import { now, pruneSeen } from '../utils.js';
-import { numSetting, boolSetting } from '../db/settings.js';
+import { numSetting, boolSetting, setting } from '../db/settings.js';
 import { upsertCandidate, updateCandidateStatus, recentEligibleCandidates, candidateById } from '../db/candidates.js';
 import { storeDecision, storeBatchDecision, logDecisionEvent } from '../db/decisions.js';
 import { buildCandidate, filterCandidate, signalLabel } from './candidateBuilder.js';
@@ -22,7 +22,22 @@ export const seenSignalCandidates = new Map();
 setDegenHandler(maybeProcessDegenCandidate);
 setCandidateHandler(processCandidateFromSignals);
 
+export function blockedRoutes() {
+  return (setting('blocked_routes', '') || '')
+    .split(',')
+    .map(r => r.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 export async function processCandidateFromSignals(signals) {
+  // Route blocking — hard reject routes with historically poor performance
+  const blocked = blockedRoutes();
+  const route = (signals.route || '').toLowerCase();
+  if (route && blocked.includes(route)) {
+    console.log(`[route] blocked ${route} for ${signals.mint.slice(0, 8)}... (in blocked_routes)`);
+    return;
+  }
+
   // Skip if max positions reached — don't waste enrichment/LLM calls
   if (!canOpenMorePositions()) {
     const max = numSetting('max_open_positions', 3);
@@ -58,7 +73,7 @@ export async function processCandidateFromSignals(signals) {
       raw: null,
     };
   } else {
-    rows = recentEligibleCandidates(numSetting('llm_candidate_pick_count', 10));
+    rows = recentEligibleCandidates(numSetting('llm_candidate_pick_count', 5));
     batchDecision = await decideCandidateBatch(rows, candidateId);
     batchId = storeBatchDecision(candidateId, rows, batchDecision);
   }

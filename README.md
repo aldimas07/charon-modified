@@ -1,210 +1,258 @@
-# Charon
+# Charon Modified
 
-Charon is a Telegram trench agent for screening noisy Pump-token flow with overlap signals, strategy gates, LLM selection, and dry-run/confirm/live execution.
+An enhanced Solana memecoin trading bot built on top of Pump.fun, with advanced signal detection, smart wallet scoring, dynamic risk management, and coordination detection.
 
-# ALERT
-This Codebase is on testing-period, developer doesn't guarantee of any result.
+## Overview
 
+Charon monitors Pump.fun fee claims, graduated tokens, and trending tokens in real-time via WebSocket. It enriches candidates with on-chain data, runs them through configurable filters, and uses an LLM to make buy/sell decisions. This modified version adds 6 major features on top of the original architecture.
 
-## Flow
+## Features (Modified)
 
-1. Charon polls the Charon signal server every `SIGNAL_POLL_MS`.
-2. The active strategy gates source count, fee requirement, token age, market cap, holders, fees, trend quality, ATH distance, and position caps.
-3. Passing candidates are enriched with token info, Jupiter asset/holders/chart data, saved-wallet exposure, and fxtwitter narrative when available.
-4. The LLM screens up to `LLM_CANDIDATE_PICK_COUNT` recent candidates and may pick one `BUY`.
-5. Charon routes approved buys through `dry_run`, `confirm`, or `live`.
-6. Open positions are monitored every `POSITION_CHECK_MS` for TP, SL, trailing TP, max hold, and partial TP rules.
+### 1. Smart Wallet Scoring
 
-## Access
+Tracks the quality of saved wallets, not just the count. Each wallet is scored 0-100 based on:
 
-Charon requires a signal server URL and API key. The signal server aggregates fee-claim, graduated, and trending data from Pump.fun in real time — without it Charon has nothing to screen.
+- **Win rate** (40% weight)
+- **Trade count reliability** (30% weight) — more trades = more reliable score
+- **Total PnL** (30% weight)
 
-To get access, contact the maintainer. Once you have credentials, set them in `.env`:
+Wallets with fewer than 3 trades receive a score of 0. Scores are cached for 1 hour and fetched in parallel (concurrency limit of 5).
 
-```env
-SIGNAL_SERVER_URL=https://api.thecharon.xyz/api
-SIGNAL_SERVER_KEY=your_key_here
+**Filter:** `min_smart_wallet_score` — only enforced when at least one saved wallet is a holder.
+
+**Files:** `src/enrichment/wallets.js`
+
+### 2. Fee Velocity Tracking
+
+Measures the rate of on-chain fee claims per token over a rolling 10-minute window. Fee velocity = total SOL distributed / 10 minutes.
+
+High velocity indicates heavy trading activity. A spike from 0.2 to 2.0 SOL/min is a strong momentum signal.
+
+**Filter:** `min_fee_velocity_sol_per_min`
+
+**Files:** `src/signals/feeVelocity.js`
+
+### 3. Dynamic TP/SL
+
+Calculates adaptive take-profit and stop-loss based on token profile instead of using static defaults. Adjustments:
+
+| Factor | TP Adjustment | SL Adjustment |
+|--------|--------------|---------------|
+| MCap < $15K | +60% | Tighter |
+| MCap $15K-50K | +30% | — |
+| MCap >= $200K | -30% | Looser |
+| Fee velocity >= 2.0 SOL/min | +30% | — |
+| Fee velocity >= 0.5 SOL/min | +15% | — |
+| Smart wallet score >= 60 | — | Looser |
+| Smart wallet score >= 40 | — | Slightly looser |
+| Liquidity < $5K | — | Tighter |
+| Holder growth >= 5/min | +20% | — |
+| Cluster buy (3+ wallets) | +25% | Looser |
+| Dev dump risk > 30% | -30% | Tighter |
+| Dev dump risk > 15% | -15% | — |
+| Whale exits >= 2 | — | Tighter |
+
+**Clamping:** TP: 10-500%, SL: -5% to -60%
+
+**Priority chain:** LLM suggestion > Dynamic TP/SL > Strategy default > Global default
+
+**Files:** `src/pipeline/dynamicTpSl.js`
+
+### 4. Holder Growth Velocity
+
+Tracks how fast new holders are accumulating per token over a rolling 15-minute window. Snapshots are taken when candidate data is fetched, with a minimum 30-second gap between snapshots.
+
+**Filter:** `min_holder_growth_rate` (holders per minute)
+
+**Files:** `src/signals/holderGrowth.js`
+
+### 5. Dev/Whale Sell Pressure Detection
+
+Monitors top holder balance changes over time by comparing holder snapshots:
+
+- **Dev dump risk:** Percentage of top holder's position sold. >30% is a serious warning.
+- **Whale exit risk:** Count of top-5 holders who sold >30% of their position.
+
+**Filters:**
+- `max_dev_dump_risk_pct` — reject if dev sold more than X% of position
+- `max_whale_exit_count` — reject if >= X whales exited
+
+**Files:** `src/signals/sellPressure.js`
+
+### 6. Coordination Detection
+
+Detects when 3+ tracked (saved) wallets enter the same token within a 2-minute window — a "cluster buy" signal indicating coordinated accumulation.
+
+Key design decisions:
+- 30-minute dedup per wallet+mint pair prevents false positives from persistent holders
+- Sliding window algorithm finds the tightest sub-window
+- Only triggers on NEW entries, not existing holdings
+
+No hard filter — cluster buys are a bonus signal that increases TP and loosens SL via dynamic TP/SL.
+
+**Files:** `src/signals/coordination.js`
+
+## Architecture
+
+```
+Signals (WebSocket/Polling)
+├── feeClaim.js        → Pump.fun fee distribution events
+├── feeVelocity.js     → Fee claim rate tracking
+├── graduated.js       → Bonding curve graduation
+├── trending.js        → GMGN/Jupiter trending tokens
+├── holderGrowth.js    → Holder count growth tracking
+├── sellPressure.js    → Top holder balance changes
+└── coordination.js    → Coordinated wallet entry detection
+
+Enrichment
+├── gmgn.js            → GMGN token info API
+├── jupiter.js         → Jupiter price/holders/chart
+├── wallets.js         → Saved wallet scoring + exposure
+├── twitter.js         → Twitter narrative analysis
+└── pumpfunMath.js     → Bonding curve calculations
+
+Pipeline
+├── candidateBuilder.js → Assembles candidates from signals + enrichment
+├── dynamicTpSl.js      → Adaptive TP/SL calculator
+├── llm.js              → LLM decision making
+└── orchestrator.js     → Main pipeline coordination
+
+Execution
+├── positions.js        → Position lifecycle management
+└── router.js           → Jupiter swap execution
+
+Telegram
+├── bot.js, commands.js, callbacks.js, menus.js, format.js, send.js
 ```
 
-## Install
+## Strategy System
+
+Strategies are stored in SQLite and configurable via Telegram commands. Four built-in strategies:
+
+| Strategy | Entry Mode | TP/SL | Description |
+|----------|-----------|-------|-------------|
+| **Sniper** | Immediate | 50/-25 | Fee claim + graduated/trending |
+| **Dip Buy** | Wait for dip | 30/-20 | ATH distance -40% |
+| **Smart Money** | Immediate | 100/-25 | High holder count, low rug ratio |
+| **Degen** | Immediate | 30/-15 | Minimal filters, fast flips |
+
+### Strategy Configuration
+
+```
+/stratset sniper tp_percent 75
+/stratset sniper min_smart_wallet_score 40
+/stratset sniper min_fee_velocity_sol_per_min 0.5
+/stratset sniper min_holder_growth_rate 3
+/stratset sniper max_dev_dump_risk_pct 30
+/stratset sniper max_whale_exit_count 2
+```
+
+### All Configurable Filter Keys
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `tp_percent` | number | 50 | Take profit % |
+| `sl_percent` | number | -25 | Stop loss % |
+| `trailing_enabled` | bool | true | Enable trailing stop |
+| `trailing_percent` | number | 20 | Trailing stop % |
+| `position_size_sol` | number | 0.1 | Buy size in SOL |
+| `max_open_positions` | number | 3 | Max concurrent positions |
+| `min_mcap_usd` | number | 7000 | Minimum market cap |
+| `max_mcap_usd` | number | 200000 | Maximum market cap |
+| `min_holders` | number | 0 | Minimum holder count |
+| `min_fee_claim_sol` | number | 0.5 | Minimum fee claim |
+| `min_gmgn_total_fee_sol` | number | 10 | Minimum GMGN total fees |
+| `min_fee_velocity_sol_per_min` | number | 0 | Minimum fee velocity |
+| `min_holder_growth_rate` | number | 0 | Minimum holder growth/min |
+| `min_smart_wallet_score` | number | 0 | Minimum wallet quality score |
+| `min_saved_wallet_holders` | number | 0 | Minimum matched wallets |
+| `max_dev_dump_risk_pct` | number | 0 | Max dev dump risk % |
+| `max_whale_exit_count` | number | 0 | Max whale exit count |
+| `max_ath_distance_pct` | number | 0 | Max ATH distance % |
+| `max_top20_holder_percent` | number | 100 | Max top holder concentration |
+| `trending_min_volume_usd` | number | 0 | Min trending volume |
+| `trending_min_swaps` | number | 0 | Min trending swaps |
+| `trending_max_rug_ratio` | number | 0.3 | Max rug ratio |
+| `trending_max_bundler_rate` | number | 0.5 | Max bundler rate |
+
+## Setup
+
+### Prerequisites
+
+- Node.js 18+
+- Helius API key (RPC + WebSocket)
+- GMGN API key
+- Jupiter API key
+- Telegram bot token
+
+### Installation
 
 ```bash
-git clone git@github.com:yunus-0x/charon.git
-cd charon
+git clone git@github.com:aldimas07/charon-modified.git
+cd charon-modified
 npm install
-cp .env.example .env
 ```
 
-Edit `.env` with your credentials, then run:
+### Configuration
+
+Create a `.env` file:
+
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+TELEGRAM_TOPIC_ID=your_topic_id
+HELIUS_API_KEY=your_helius_key
+GMGN_API_KEY=your_gmgn_key
+JUPITER_API_KEY=your_jupiter_key
+SOLANA_PRIVATE_KEY=your_base58_private_key
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=your_llm_key
+LLM_MODEL=gpt-4o-mini
+TRADING_MODE=dry_run
+```
+
+### Running
 
 ```bash
 npm start
 ```
 
-For PM2:
+### Testing
 
 ```bash
-pm2 start index.js --name charon
-pm2 save
+npm test
 ```
 
-## Required Config
-
-```env
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-```
-
-`TELEGRAM_CHAT_ID` is the chat or group ID where Charon sends alerts and accepts commands. Only messages from this chat are processed.
-
-Signal server (required — see [Access](#access) above):
-
-```env
-SIGNAL_SERVER_URL=https://api.thecharon.xyz/api
-SIGNAL_SERVER_KEY=
-SIGNAL_POLL_MS=30000
-```
-
-RPC endpoint (required for live execution):
-
-```env
-SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
-SOLANA_WS_URL=wss://mainnet.helius-rpc.com/?api-key=YOUR_KEY
-```
-
-If `SOLANA_RPC_URL`/`SOLANA_WS_URL` are not set, Charon falls back to Helius mainnet URLs and requires:
-
-```env
-HELIUS_API_KEY=
-```
-
-## GMGN Enrichment
-
-```env
-GMGN_ENABLED=true
-GMGN_API_KEY=
-```
-
-GMGN enriches candidates with holder count, liquidity, fee data, and social links. Set `GMGN_ENABLED=false` to skip it — Charon falls back to Jupiter/server data and the status line shows `off`. GMGN has aggressive rate limits; keep `GMGN_REQUEST_DELAY_MS` at 2500+ ms.
-
-## LLM Config
-
-```env
-ENABLE_LLM=true
-LLM_BASE_URL=https://api.minimax.io/v1
-LLM_API_KEY=
-LLM_MODEL=MiniMax-M2.7
-LLM_TIMEOUT_MS=60000
-LLM_CANDIDATE_PICK_COUNT=10
-LLM_CANDIDATE_MAX_AGE_MS=600000
-```
-
-`LLM_BASE_URL` accepts any OpenAI-compatible endpoint. The default is MiniMax M2.7, which is fast and cheap for this use case. OpenAI (`https://api.openai.com/v1`), Groq, and local Ollama endpoints all work — just set the matching `LLM_MODEL`.
-
-Set `ENABLE_LLM=false` to disable LLM globally. Individual strategies also have a `use_llm` flag — strategies with `use_llm: false` (e.g. `degen`) auto-approve any candidate that passes filters without calling the LLM.
-
-Each strategy has its own `llm_min_confidence` threshold. Configure it from `/menu → Strategy`, or:
-
-```bash
-/stratset sniper llm_min_confidence 70
-```
-
-## Execution Modes
-
-```env
-TRADING_MODE=dry_run
-```
-
-- `dry_run`: stores simulated buys/sells in SQLite. No wallet needed.
-- `confirm`: sends a Telegram trade intent with approve/reject buttons. Executes live only after you confirm.
-- `live`: signs and executes Jupiter Ultra swaps immediately after strategy and LLM approval.
-
-Live and confirm modes require:
-
-```env
-SOLANA_PRIVATE_KEY=
-JUPITER_API_KEY=
-JUPITER_SWAP_BASE_URL=https://api.jup.ag/swap/v2
-LIVE_MIN_SOL_RESERVE=0.02
-```
-
-`LIVE_MIN_SOL_RESERVE` is the minimum SOL kept in the wallet after any buy. Charon refuses to execute if the balance would fall below this.
-
-Swaps use Jupiter Ultra mode — slippage and routing are handled automatically by Jupiter. No manual slippage config needed.
-
-## Strategies
-
-Use `/menu → Strategy` or commands:
-
-```bash
-/strategy
-/strategy sniper
-/strategy dip_buy
-/strategy smart_money
-/strategy degen
-/stratset sniper tp_percent 75
-```
-
-Default strategies:
-
-- `sniper`: fee-claim overlap, immediate entry, LLM on.
-- `dip_buy`: waits for ATH-distance dip alerts.
-- `smart_money`: stricter holder/trending quality, partial TP support.
-- `degen`: lower source threshold, rule-based (no LLM).
-
-Strategy settings are stored in SQLite and hot-read. Menu changes apply without restart.
+52 tests covering all 6 features, filter logic, TP/SL calculations, and edge cases.
 
 ## Telegram Commands
 
-```bash
-/menu
-/strategy
-/stratset <strategy_id> <key> <value>
-/positions
-/candidate <mint>
-/filters
-/pnl
-/learn <window>
-/lessons
-/walletadd <label> <address>
-/walletremove <label>
-/wallets
-```
+| Command | Description |
+|---------|-------------|
+| `/menu` | Open main menu |
+| `/strategy` | Show/switch strategy |
+| `/stratset <id> <key> <value>` | Set strategy config |
+| `/positions` | Show open positions |
+| `/candidate <mint>` | Show candidate details |
+| `/filters` | Show current filters |
+| `/setfilter <key> <value>` | Set global filter |
+| `/pnl` | Show saved wallet PnL + scores |
+| `/walletadd <label> <address>` | Add wallet to track |
+| `/walletremove <label>` | Remove tracked wallet |
+| `/wallets` | List tracked wallets |
+| `/learn` | Run learning report |
+| `/lessons` | Show active lessons |
+| `/history` | Show position history |
 
-## Storage
+## Learning System
 
-Charon uses `charon.sqlite` as source of truth. It stores:
+Charon includes a self-improving learning loop:
 
-- candidates and filter results
-- LLM decisions and batches
-- decision logs
-- dry-run/live positions and trades
-- trade intents
-- saved wallets
-- strategy configs
-- price alerts
-- learning runs and lessons
+1. **Evidence collection** — all buy/sell decisions and outcomes are stored
+2. **Lesson generation** — LLM analyzes trade history and produces actionable rules
+3. **Auto-blocking** — routes with <10% win rate and 5+ trades are automatically blocked
+4. **Prompt injection** — active lessons are injected into future LLM decisions
 
-Open positions resume monitoring after restart.
+## License
 
-## Verification
-
-```bash
-npm run check
-```
-
-## Config Reloading
-
-SQLite/menu settings are hot-read by the bot. API keys, wallet key, RPC URLs, Jupiter base URL, and polling intervals are `.env` values and require restart.
-
-## API Usage Notes
-
-- **GMGN**: Rate-limited. Keep `GMGN_REQUEST_DELAY_MS=2500` or higher. Running many instances or lowering the delay will get your key banned.
-- **Jupiter**: `fetchJupiterAsset` and `fetchJupiterHolders` are called per candidate and per position refresh cycle. At high throughput, you may hit 429s — Charon backs off automatically and retries from cache.
-- **Helius RPC**: Position monitoring polls every `POSITION_CHECK_MS` (default 10s). Use a paid Helius plan for live trading; free tier will throttle under load.
-- **LLM**: One API call per batch cycle (up to `LLM_CANDIDATE_PICK_COUNT` candidates per call). MiniMax M2.7 is the most cost-efficient default for this prompt shape.
-
-## Notes
-
-- Live execution uses `@solana/web3.js` v1 (legacy SDK). It works, but a future version may migrate to `@solana/kit`.
-- The position monitor sends a Telegram alert after 3 consecutive failures on any polling loop.
+Private — for personal use only.

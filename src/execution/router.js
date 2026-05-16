@@ -14,6 +14,7 @@ import { candidateSummary } from '../telegram/format.js';
 import { sendPositionOpen, sendTelegram } from '../telegram/send.js';
 import { updateCandidateStatus } from '../db/candidates.js';
 import { createTradeIntent } from '../db/intents.js';
+import { validateSellAmount, sellChunked, fetchBondingCurve } from '../enrichment/pumpfunMath.js';
 
 export async function executeLiveBuy(selectedRow, decision, batchId, rows = [], triggerCandidateId = null) {
   const strat = activeStrategy();
@@ -48,6 +49,35 @@ export async function executeLiveBuy(selectedRow, decision, batchId, rows = [], 
 export async function executeLiveSell(position, reason) {
   const amount = position.token_amount_raw || position.token_amount_est;
   if (!amount || Number(amount) <= 0) throw new Error('Live position has no token amount to sell.');
+
+  // Check for u64 overflow risk
+  const bc = await fetchBondingCurve(position.mint);
+  if (bc && !bc.complete) {
+    const validation = validateSellAmount(bc, amount);
+    if (validation.needsChunking) {
+      console.log(`[position] sell overflow risk detected for ${position.mint}: requested ${validation.requested}, safeMax ${validation.safeMax}. Chunking sell.`);
+      const chunkResult = await sellChunked({
+        bc,
+        mint: position.mint,
+        tokenAmountRaw: amount,
+        sellFn: (chunkAmount) => executeJupiterSwap({
+          inputMint: position.mint,
+          outputMint: WSOL_MINT,
+          amount: chunkAmount,
+        }),
+        refetchBcFn: fetchBondingCurve,
+      });
+      // Return aggregated result
+      const totalOutput = chunkResult.results.reduce((sum, r) => sum + Number(r.outputAmount || 0), 0);
+      return {
+        outputAmount: String(totalOutput),
+        signature: chunkResult.results[chunkResult.results.length - 1]?.signature,
+        chunked: true,
+        chunks: chunkResult.chunks,
+      };
+    }
+  }
+
   return executeJupiterSwap({
     inputMint: position.mint,
     outputMint: WSOL_MINT,

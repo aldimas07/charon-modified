@@ -114,7 +114,15 @@ export function strictJsonFromText(text) {
   const clean = stripThinking(text);
   const fenced = clean.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   const raw = fenced || clean.match(/\{[\s\S]*\}/)?.[0] || clean;
-  return JSON.parse(raw);
+  // Fix common LLM JSON issues
+  let fixed = raw.trim()
+    .replace(/,\s*([}\]])/g, '$1');  // trailing commas
+  try {
+    return JSON.parse(fixed);
+  } catch (e) {
+    // Try original raw if fix broke it
+    return JSON.parse(raw);
+  }
 }
 
 export function parseNumericInput(value) {

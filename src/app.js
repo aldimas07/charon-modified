@@ -7,6 +7,7 @@ import { monitorPositions } from './execution/positions.js';
 import { processCandidateFromSignals, maybeProcessDegenCandidate } from './pipeline/orchestrator.js';
 import { sendTelegram } from './telegram/send.js';
 import { makeFailureTracker } from './utils.js';
+import { startEventMonitor, stopEventMonitor, onPumpEvent, syncWatchedMints } from './enrichment/eventMonitor.js';
 
 setDefaultResultOrder('ipv4first');
 validateConfig();
@@ -60,4 +61,47 @@ export async function startCharon() {
   // Position monitoring runs in both modes
   const trackPositions = makeFailureTracker('position monitor', (msg) => sendTelegram(msg));
   setInterval(() => trackPositions(() => monitorPositions()), POSITION_CHECK_MS);
+
+  // ── Pump.fun Event Monitor ─────────────────────────────────────────
+  // Watches bonding curves of open positions for large trades and graduations
+  startEventMonitor();
+
+  // Sync watched mints periodically (new positions may open)
+  setInterval(() => syncWatchedMints(), 60_000);
+
+  // Dump detection — alert when large sell hits an open position
+  onPumpEvent(({ mint, solAmount, signature }) => {
+    const shortMint = mint.slice(0, 8);
+    sendTelegram([
+      `🔴 <b>Dump detected</b>`,
+      `Token: <code>${mint}</code>`,
+      `Sell: ${solAmount.toFixed(2)} SOL`,
+      `Check position if still open.`,
+    ].join('\n'));
+  }, 'dump');
+
+  // Graduation detection — alert when token migrates to AMM
+  onPumpEvent(({ mint, event, signature }) => {
+    const shortMint = mint.slice(0, 8);
+    sendTelegram([
+      `🎓 <b>Token graduated!</b>`,
+      `Token: <code>${mint}</code>`,
+      `Event: ${event.type}`,
+      `Position may need manual review — bonding curve no longer active.`,
+    ].join('\n'));
+  }, 'graduation');
+
+  // Large buy detection — informational
+  onPumpEvent(({ mint, solAmount }) => {
+    // Only alert for very large buys (>25 SOL) to avoid spam
+    if (solAmount >= 25) {
+      sendTelegram([
+        `🟢 <b>Large buy detected</b>`,
+        `Token: <code>${mint}</code>`,
+        `Buy: ${solAmount.toFixed(2)} SOL`,
+      ].join('\n'));
+    }
+  }, 'largeTrade');
+
+  console.log('[event-monitor] pump.fun event monitor started');
 }

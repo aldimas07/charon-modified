@@ -1,6 +1,7 @@
 import axios from 'axios';
-import { ENABLE_LLM, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } from '../config.js';
+import { ENABLE_LLM, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS, LLM_MAX_TOKENS } from '../config.js';
 import { now, json, stripThinking, strictJsonFromText } from '../utils.js';
+import { setting, setSetting } from '../db/settings.js';
 import { fmtPct } from '../format.js';
 import { db } from '../db/connection.js';
 
@@ -43,6 +44,7 @@ export async function generateLessons(summary) {
     const res = await axios.post(`${LLM_BASE_URL.replace(/\/$/, '')}/chat/completions`, {
       model: LLM_MODEL,
       temperature: 0.1,
+      max_tokens: LLM_MAX_TOKENS,
       messages: [
         {
           role: 'system',
@@ -93,5 +95,39 @@ export function storeLearningRun(windowMs, summary, lessons, raw) {
     VALUES (?, ?, 'active', ?, ?)
   `);
   for (const item of lessons) insert.run(runId, now(), item.lesson, json(item.evidence || {}));
+
+  // Auto-block routes with very poor performance (win rate < 20% and >= 3 trades)
+  autoBlockPoorRoutes(summary);
+
   return runId;
+}
+
+function autoBlockPoorRoutes(summary) {
+  const routes = summary.positions.byRoute || [];
+  if (routes.length < 2) return; // don't block if only 1 route exists
+
+  const currentlyBlocked = (setting('blocked_routes', '') || '')
+    .split(',').map(r => r.trim().toLowerCase()).filter(Boolean);
+  const newBlocks = [];
+
+  // Protect the best-performing route from auto-blocking
+  const bestRoute = routes[0]?.route?.toLowerCase();
+
+  for (const route of routes) {
+    const name = route.route?.toLowerCase();
+    if (!name || currentlyBlocked.includes(name)) continue;
+    if (name === bestRoute) continue; // never auto-block the best route
+
+    // Block if: >= 5 trades AND (win rate < 10% OR avg PnL < -25%)
+    if (route.count >= 5 && (route.winRate < 10 || route.avgPnlPercent < -25)) {
+      newBlocks.push(name);
+      console.log(`[learn] auto-blocking route "${name}": ${route.count} trades, ${(route.winRate || 0).toFixed(0)}% WR, ${(route.avgPnlPercent || 0).toFixed(1)}% avg PnL`);
+    }
+  }
+
+  if (newBlocks.length) {
+    const updated = [...currentlyBlocked, ...newBlocks].filter(Boolean).join(',');
+    setSetting('blocked_routes', updated);
+    console.log(`[learn] blocked_routes updated: ${updated}`);
+  }
 }

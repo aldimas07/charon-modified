@@ -32,13 +32,17 @@ export function candidateSummary(candidate, decision = null) {
       `Mcap: ${fmtUsd(candidate.metrics.marketCapUsd)}`,
       `Liq: ${fmtUsd(candidate.metrics.liquidityUsd)}`,
       `Fees: ${fmtSol(candidate.metrics.gmgnTotalFeesSol)} SOL`,
+      candidate.metrics.feeVelocitySolPerMin > 0 ? `Fee vel: ${candidate.metrics.feeVelocitySolPerMin} SOL/min` : null,
+      candidate.metrics.holderGrowthRate > 0 ? `Holder growth: +${candidate.metrics.holderGrowthRate}/min` : null,
+      candidate.metrics.devDumpRisk > 15 ? `⚠️ Dev dump: ${candidate.metrics.devDumpRisk}%` : null,
+      candidate.metrics.clusterBuy ? `🎯 Cluster: ${candidate.metrics.clusterSize} wallets` : null,
       `Grad vol: ${fmtUsd(candidate.metrics.graduatedVolumeUsd)}`,
     ].join(' · '),
     [
       `Holders: ${candidate.metrics.holderCount || '?'}`,
       `Top20: ${fmtPct(candidate.holders.top20Percent)}`,
       `Max holder: ${fmtPct(candidate.holders.maxHolderPercent)}`,
-      `Saved wallets: ${candidate.savedWalletExposure.holderCount}/${candidate.savedWalletExposure.checked}`,
+      `Saved wallets: ${candidate.savedWalletExposure.holderCount}/${candidate.savedWalletExposure.checked}` + (candidate.savedWalletExposure.smartScore > 0 ? ` · Score: ${candidate.savedWalletExposure.smartScore}` : ''),
     ].join(' · '),
     candidate.trending ? [
       `Trending: #${candidate.trending.rank || '?'}/${escapeHtml(candidate.trending.interval || '')}`,
@@ -51,6 +55,16 @@ export function candidateSummary(candidate, decision = null) {
       `ATH ctx: ${fmtPct(chartWindow.belowHighPercent)} from 24h high`,
       `Range low: ${fmtPct(chartWindow.aboveLowPercent)}`,
       `Top risk: ${candidate.chart.topBlastRisk ? 'yes' : 'no'}`,
+    ].join(' · ') : null,
+    candidate.bondingCurve ? [
+      `Grad: ${candidate.bondingCurve.graduationPercent}%`,
+      `Impact: ${candidate.bondingCurve.priceImpactBpsSmall || 0}/${candidate.bondingCurve.priceImpactBpsMedium || 0} bps`,
+      `Spread: ${candidate.bondingCurve.spread ? (candidate.bondingCurve.spread * 1e9).toFixed(2) + ' lamports' : '?'}`,
+    ].join(' · ') : null,
+    candidate.ammPool ? [
+      `AMM: graduated`,
+      `Mcap: ${fmtUsd(candidate.ammPool.marketCapUsd)}`,
+      `Pool: ${short(candidate.ammPool.poolAddress)}`,
     ].join(' · ') : null,
     candidate.twitterNarrative?.metrics ? [
       `Tweet: ${candidate.twitterNarrative.metrics.likes} likes`,
@@ -77,6 +91,7 @@ export function compactCandidateLine(row, index = null) {
     escapeHtml(signal),
     `mcap ${fmtUsd(candidate.metrics?.marketCapUsd)}`,
     `liq ${fmtUsd(candidate.metrics?.liquidityUsd)}`,
+    candidate.bondingCurve ? `grad ${candidate.bondingCurve.graduationPercent}%` : null,
     candidate.feeClaim ? `fee ${fmtSol(candidate.feeClaim.distributedSol)} SOL` : null,
   ].filter(Boolean).join(' · ');
 }
@@ -145,6 +160,7 @@ export function compactDecisionCandidate(row) {
       top20: c.holders?.top20,
     },
     chart: c.chart,
+    bondingCurve: c.bondingCurve,
     savedWalletExposure: c.savedWalletExposure,
     twitterNarrative: c.twitterNarrative,
     filters: c.filters,

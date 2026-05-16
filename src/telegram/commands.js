@@ -28,7 +28,8 @@ import { executeLiveSell } from '../execution/router.js';
 import { handleCallback, editMenuMessage } from './callbacks.js';
 import { consumeNumericFilterInput } from './input.js';
 import { runLearning, sendLessons } from '../learning/commands.js';
-import { fetchWalletPnl } from '../enrichment/wallets.js';
+import { fetchWalletPnl, fetchWalletScores } from '../enrichment/wallets.js';
+import { sendHistory } from './history.js';
 
 export async function handleMessage(msg) {
   const text = (msg.text || '').trim();
@@ -56,11 +57,11 @@ export async function handleMessage(msg) {
     const [, id, key, ...rest] = parts;
     const value = rest.join(' ');
     if (!id || !key || !value) {
-      return bot.sendMessage(chatId, 'Usage: /stratset <strategy_id> <key> <value>\n\nExample: /stratset sniper tp_percent 75\n\nKeys: tp_percent, sl_percent, position_size_sol, max_open_positions, min_mcap_usd, max_mcap_usd, min_holders, trailing_enabled, trailing_percent, partial_tp, partial_tp_at_percent, partial_tp_sell_percent, max_hold_ms, use_llm, llm_min_confidence, min_source_count, require_fee_claim, min_fee_claim_sol, min_gmgn_total_fee_sol, max_ath_distance_pct');
+      return bot.sendMessage(chatId, `Usage: /stratset <strategy_id> <key> <value>\\n\\nExample: /stratset sniper tp_percent 75\\n\\nKeys: tp_percent, sl_percent, position_size_sol, max_open_positions, min_mcap_usd, max_mcap_usd, min_holders, trailing_enabled, trailing_percent, partial_tp, partial_tp_at_percent, partial_tp_sell_percent, max_hold_ms, use_llm, llm_min_confidence, min_source_count, require_fee_claim, min_fee_claim_sol, min_gmgn_total_fee_sol, max_ath_distance_pct, min_smart_wallet_score, min_fee_velocity_sol_per_min, min_holder_growth_rate, max_dev_dump_risk_pct, max_whale_exit_count`);
     }
     const strat = strategyById(id);
     if (!strat) return bot.sendMessage(chatId, `Strategy "${id}" not found.`);
-    const numKeys = new Set(['tp_percent', 'sl_percent', 'position_size_sol', 'max_open_positions', 'min_mcap_usd', 'max_mcap_usd', 'min_holders', 'max_top20_holder_percent', 'trailing_percent', 'partial_tp_at_percent', 'partial_tp_sell_percent', 'max_hold_ms', 'llm_min_confidence', 'min_source_count', 'min_fee_claim_sol', 'min_gmgn_total_fee_sol', 'max_ath_distance_pct', 'token_age_max_ms', 'trending_min_volume_usd', 'trending_min_swaps', 'trending_max_rug_ratio', 'trending_max_bundler_rate', 'min_saved_wallet_holders', 'min_graduated_volume_usd']);
+    const numKeys = new Set(['tp_percent', 'sl_percent', 'position_size_sol', 'max_open_positions', 'min_mcap_usd', 'max_mcap_usd', 'min_holders', 'max_top20_holder_percent', 'trailing_percent', 'partial_tp_at_percent', 'partial_tp_sell_percent', 'max_hold_ms', 'llm_min_confidence', 'min_source_count', 'min_fee_claim_sol', 'min_gmgn_total_fee_sol', 'max_ath_distance_pct', 'token_age_max_ms', 'trending_min_volume_usd', 'trending_min_swaps', 'trending_max_rug_ratio', 'trending_max_bundler_rate', 'min_saved_wallet_holders', 'min_graduated_volume_usd', 'min_smart_wallet_score', 'min_fee_velocity_sol_per_min', 'min_holder_growth_rate', 'max_dev_dump_risk_pct', 'max_whale_exit_count']);
     const boolKeys = new Set(['trailing_enabled', 'partial_tp', 'use_llm', 'require_fee_claim']);
     const newConfig = { ...strat };
     delete newConfig.id;
@@ -104,6 +105,16 @@ export async function handleMessage(msg) {
     return bot.sendMessage(chatId, `Removed ${label}.`);
   }
   if (text.startsWith('/wallets')) return handleCallback({ id: 'manual', data: 'menu:wallets', message: { chat: { id: chatId } } });
+  if (text.startsWith('/history')) {
+    const args = text.replace('/history', '').trim();
+    const { text: msgText, keyboard } = sendHistory(chatId, args);
+    await bot.sendMessage(chatId, msgText, {
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      reply_markup: keyboard,
+    });
+    return;
+  }
   if (text.startsWith('/setfilter')) {
     const { key, value } = parseSetFilter(text);
     const valid = new Set([
@@ -251,6 +262,7 @@ export function setupTelegram() {
     { command: 'walletadd', description: 'Save wallet for exposure/PnL' },
     { command: 'walletremove', description: 'Remove saved wallet' },
     { command: 'wallets', description: 'List saved wallets' },
+    { command: 'history', description: 'Dry-run history (6h|12h|1d compact|full N)' },
   ]).catch(err => console.log(`[telegram] commands ${err.message}`));
 
   bot.on('callback_query', query => handleCallback(query).catch(err => console.log(`[callback] ${err.message}`)));
@@ -268,21 +280,24 @@ async function sendMenu(chatId = TELEGRAM_CHAT_ID) {
   });
 }
 
-async function sendPnl(chatId, query = null) {
+export async function sendPnl(chatId, query = null) {
   const wallets = savedWallets();
   if (!wallets.length) {
     const text = '📊 <b>PnL</b>\n\nNo saved wallets. Use /walletadd &lt;label&gt; &lt;address&gt;.';
     return query ? editMenuMessage(query, text, navKeyboard()) : bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
   }
+  const scores = await fetchWalletScores().catch(() => new Map());
   const chunks = [];
   for (const wallet of wallets) {
-    const pnl = await fetchWalletPnl(wallet.address).catch(() => null);
+    const scoreData = scores.get(wallet.address);
+    const score = scoreData?.score ?? 0;
+    const pnl = scoreData?.pnl ?? null; // use cached PnL, avoid double fetch
     if (!pnl) {
-      chunks.push(`• <b>${escapeHtml(wallet.label)}</b>: no data`);
+      chunks.push(`• <b>${escapeHtml(wallet.label)}</b>: no data${score > 0 ? ` · Score: ${score}` : ''}`);
       continue;
     }
     chunks.push([
-      `• <b>${escapeHtml(wallet.label)}</b>`,
+      `• <b>${escapeHtml(wallet.label)}</b> · Score: ${score}/100`,
       `Win: ${fmtPct(pnl.winRate)} · PnL: ${fmtPct(pnl.totalPnlPercent)}`,
       `Trades: ${pnl.totalTrades} · Wins: ${pnl.wins}`,
     ].join('\n'));
