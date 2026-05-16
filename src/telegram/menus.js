@@ -37,6 +37,11 @@ export function filtersText() {
     `Min holders: ${strat.min_holders || 'off'}`,
     `Max holder: ${strat.max_top20_holder_percent < 100 ? fmtPct(strat.max_top20_holder_percent) : 'off'}`,
     `Min saved holders: ${strat.min_saved_wallet_holders || 'off'}`,
+    strat.min_smart_wallet_score > 0 ? `Min wallet score: ${strat.min_smart_wallet_score}` : null,
+    strat.min_fee_velocity_sol_per_min > 0 ? `Min fee velocity: ${strat.min_fee_velocity_sol_per_min}/min` : null,
+    strat.min_holder_growth_rate > 0 ? `Min holder growth: ${strat.min_holder_growth_rate}/min` : null,
+    strat.max_dev_dump_risk_pct > 0 ? `Max dev dump: ${strat.max_dev_dump_risk_pct}%` : null,
+    strat.max_whale_exit_count > 0 ? `Max whale exits: ${strat.max_whale_exit_count}` : null,
     strat.max_ath_distance_pct < 0 ? `Max ATH distance: ${strat.max_ath_distance_pct}%` : null,
     '',
     `Min sources: ${strat.min_source_count}`,
@@ -75,6 +80,11 @@ export const strategyNumericLabels = {
   max_top20_holder_percent: 'maximum top holder percent',
   min_saved_wallet_holders: 'minimum saved-wallet holders',
   max_ath_distance_pct: 'maximum ATH distance percent (-40 = 40% below ATH, 0 = off)',
+  min_smart_wallet_score: 'minimum wallet quality score (0-100)',
+  min_fee_velocity_sol_per_min: 'minimum fee velocity SOL per minute',
+  min_holder_growth_rate: 'minimum holder growth per minute',
+  max_dev_dump_risk_pct: 'maximum dev dump risk percent',
+  max_whale_exit_count: 'maximum whale exit count',
   min_source_count: 'minimum source count',
   token_age_max_ms: 'maximum token age milliseconds',
   trending_min_volume_usd: 'minimum trending volume USD',
@@ -261,6 +271,17 @@ export function strategyKeyboard() {
     ],
     [
       { text: `Saved ${strat.min_saved_wallet_holders || 'off'}`, callback_data: 'stratinput:min_saved_wallet_holders' },
+      { text: `Wallet Score ${strat.min_smart_wallet_score || 'off'}`, callback_data: 'stratinput:min_smart_wallet_score' },
+    ],
+    [
+      { text: `Fee Vel ${strat.min_fee_velocity_sol_per_min || 'off'}/min`, callback_data: 'stratinput:min_fee_velocity_sol_per_min' },
+      { text: `Holder Growth ${strat.min_holder_growth_rate || 'off'}/min`, callback_data: 'stratinput:min_holder_growth_rate' },
+    ],
+    [
+      { text: `Dev Dump ${strat.max_dev_dump_risk_pct || 'off'}%`, callback_data: 'stratinput:max_dev_dump_risk_pct' },
+      { text: `Whale Exit ${strat.max_whale_exit_count || 'off'}`, callback_data: 'stratinput:max_whale_exit_count' },
+    ],
+    [
       { text: `ATH ${strat.max_ath_distance_pct < 0 ? `${strat.max_ath_distance_pct}%` : 'off'}`, callback_data: 'stratinput:max_ath_distance_pct' },
     ],
     [

@@ -178,6 +178,11 @@ const STRAT_PRESETS = {
   min_fee_claim_sol: [0, 0.5, 1, 2, 5, 10],
   min_gmgn_total_fee_sol: [0, 3, 5, 10, 20],
   max_ath_distance_pct: [0, -20, -30, -40, -50, -60],
+  min_smart_wallet_score: [0, 20, 30, 40, 50, 60, 70],
+  min_fee_velocity_sol_per_min: [0, 0.1, 0.3, 0.5, 1.0, 2.0],
+  min_holder_growth_rate: [0, 1, 2, 3, 5, 10],
+  max_dev_dump_risk_pct: [0, 15, 20, 30, 40, 50],
+  max_whale_exit_count: [0, 1, 2, 3],
   token_age_max_ms: [0, 1800000, 3600000, 7200000, 14400000, 43200000, 86400000],
 };
 
@@ -250,6 +255,11 @@ async function updateSettingFromButton(query, key, value) {
     'default_sl_percent',
     'default_trailing_enabled',
     'default_trailing_percent',
+    'min_smart_wallet_score',
+    'min_fee_velocity_sol_per_min',
+    'min_holder_growth_rate',
+    'max_dev_dump_risk_pct',
+    'max_whale_exit_count',
   ]);
   if (!valid.has(key) || value == null) return bot.sendMessage(chatId, 'Unknown setting.');
   setSetting(key, value);
