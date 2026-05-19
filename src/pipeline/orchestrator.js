@@ -5,7 +5,7 @@ import { storeDecision, storeBatchDecision, logDecisionEvent } from '../db/decis
 import { buildCandidate, filterCandidate, signalLabel } from './candidateBuilder.js';
 import { decideCandidateBatch } from './llm.js';
 import { activeStrategy } from '../db/settings.js';
-import { createDryRunPosition, createLivePosition, canOpenMorePositions, openPositionCount, tradingMode } from '../db/positions.js';
+import { createDryRunPosition, createLivePosition, canOpenMorePositions, openPositionCount, tradingMode, hasOpenPosition, isRecentlyClosed } from '../db/positions.js';
 import { sendBatchReveal, sendTelegram, sendPositionOpen, sendTradeIntent } from '../telegram/send.js';
 import { candidateSummary } from '../telegram/format.js';
 import { createTradeIntent } from '../db/intents.js';
@@ -42,6 +42,17 @@ export async function processCandidateFromSignals(signals) {
   if (!canOpenMorePositions()) {
     const max = numSetting('max_open_positions', 3);
     console.log(`[agent] max positions reached (${openPositionCount()}/${max}), skipping ${signals.mint.slice(0, 8)}...`);
+    return;
+  }
+
+  // Repeat entry blocker — skip if mint already open or recently closed
+  const REPEAT_COOLDOWN_MS = 30 * 60 * 1000; // 30 min cooldown after close
+  if (hasOpenPosition(signals.mint)) {
+    console.log(`[agent] already holding ${signals.mint.slice(0, 8)}..., skipping repeat entry`);
+    return;
+  }
+  if (isRecentlyClosed(signals.mint, REPEAT_COOLDOWN_MS)) {
+    console.log(`[agent] ${signals.mint.slice(0, 8)}... recently closed (<30m cooldown), skipping`);
     return;
   }
 
@@ -229,6 +240,18 @@ export async function maybeProcessDegenCandidate(mint, trendingToken) {
   if (!boolSetting('trending_allow_degen', false)) return;
   const graduatedCoin = graduated.get(mint);
   if (!graduatedCoin) return;
+
+  // Repeat entry blocker for degen path too
+  const REPEAT_COOLDOWN_MS = 30 * 60 * 1000;
+  if (hasOpenPosition(mint)) {
+    console.log(`[agent] degen: already holding ${mint.slice(0, 8)}..., skipping`);
+    return;
+  }
+  if (isRecentlyClosed(mint, REPEAT_COOLDOWN_MS)) {
+    console.log(`[agent] degen: ${mint.slice(0, 8)}... recently closed (<30m cooldown), skipping`);
+    return;
+  }
+
   pruneSeen(seenSignalCandidates, 10 * 60 * 1000);
   const bucket = Math.floor(now() / (5 * 60 * 1000));
   const key = `graduated_trending:${mint}:${bucket}`;

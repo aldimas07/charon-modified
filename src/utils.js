@@ -19,7 +19,12 @@ export function sleep(ms) {
 }
 
 export function stripThinking(text) {
-  return String(text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<\/?think>/gi, '').trim();
+  return String(text || '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<\/?think>/gi, '')
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+    .replace(/<\/?thought>/gi, '')
+    .trim();
 }
 
 export function pruneSeen(map, ttlMs) {

@@ -130,7 +130,7 @@ export function agentText() {
     `Strategy: <b>${escapeHtml(strat.name)}</b>`,
     `Agent: <b>${boolSetting('agent_enabled', true) ? 'on' : 'off'}</b>`,
     `Mode: <b>${escapeHtml(tradingMode())}</b>`,
-    `LLM: <b>${strat.use_llm && ENABLE_LLM && LLM_API_KEY ? 'configured' : 'disabled'}</b>`,
+    `LLM: <b>${strat.use_llm && ENABLE_LLM ? (LLM_API_KEY ? 'configured' : 'no-key (open)') : 'disabled'}</b>`,
     `Confidence: ${fmtPct(strat.llm_min_confidence || numSetting('llm_min_confidence', 75))}`,
     `Open positions: ${openPositionCount()}/${strat.max_open_positions || 'unlimited'}`,
     `Batch candidates: ${numSetting('llm_candidate_pick_count', 10)}`,

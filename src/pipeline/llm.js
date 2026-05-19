@@ -91,7 +91,7 @@ export function compactCandidateForLlm(row) {
 }
 
 export async function decideCandidateBatch(rows, triggerCandidateId) {
-  if (!ENABLE_LLM || !LLM_API_KEY) {
+  if (!ENABLE_LLM) {
     return {
       verdict: 'WATCH',
       confidence: 0,
@@ -150,18 +150,20 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
   };
 
   try {
-    const res = await axios.post(`${LLM_BASE_URL.replace(/\/?$/, '')}/chat/completions`, {
+    const body = {
       model: LLM_MODEL,
       temperature: 0.2,
       max_tokens: LLM_MAX_TOKENS,
-      thinking: { type: 'disabled' },
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: JSON.stringify(user) },
       ],
-    }, {
+    };
+    // MiMo-specific: disable thinking to free token budget for JSON output
+    if (/mimo/i.test(LLM_MODEL)) body.thinking = { type: 'disabled' };
+    const res = await axios.post(`${LLM_BASE_URL.replace(/\/?$/, '')}/chat/completions`, body, {
       timeout: LLM_TIMEOUT_MS,
-      headers: { authorization: `Bearer ${LLM_API_KEY}`, 'content-type': 'application/json' },
+      headers: { ...(LLM_API_KEY ? { authorization: `Bearer ${LLM_API_KEY}` } : {}), 'content-type': 'application/json', 'accept-encoding': 'identity' },
     });
     const content = res.data?.choices?.[0]?.message?.content || '';
     try {

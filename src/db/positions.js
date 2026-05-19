@@ -18,6 +18,27 @@ export function canOpenMorePositions() {
   return openPositionCount() < max;
 }
 
+/**
+ * Check if a mint already has an open position.
+ */
+export function hasOpenPosition(mint) {
+  return !!db.prepare(`SELECT 1 FROM dry_run_positions WHERE mint = ? AND status = 'open' LIMIT 1`).get(mint);
+}
+
+/**
+ * Check if a mint was recently closed (within cooldown window).
+ * Prevents re-entering tokens that just hit SL or were dumped.
+ */
+export function isRecentlyClosed(mint, cooldownMs = 30 * 60 * 1000) {
+  const cutoff = now() - cooldownMs;
+  const row = db.prepare(`
+    SELECT closed_at_ms FROM dry_run_positions
+    WHERE mint = ? AND status = 'closed' AND closed_at_ms > ?
+    ORDER BY closed_at_ms DESC LIMIT 1
+  `).get(mint, cutoff);
+  return !!row;
+}
+
 export function tradingMode() {
   const mode = setting('trading_mode', 'dry_run');
   return ['dry_run', 'confirm', 'live'].includes(mode) ? mode : 'dry_run';

@@ -39,7 +39,7 @@ export function fallbackLessons(summary) {
 
 export async function generateLessons(summary) {
   const fallback = fallbackLessons(summary);
-  if (!ENABLE_LLM || !LLM_API_KEY) return { lessons: fallback, raw: { fallback: true } };
+  if (!ENABLE_LLM) return { lessons: fallback, raw: { fallback: true } };
   try {
     const res = await axios.post(`${LLM_BASE_URL.replace(/\/$/, '')}/chat/completions`, {
       model: LLM_MODEL,
@@ -68,7 +68,7 @@ export async function generateLessons(summary) {
       ],
     }, {
       timeout: LLM_TIMEOUT_MS,
-      headers: { authorization: `Bearer ${LLM_API_KEY}`, 'content-type': 'application/json' },
+      headers: { ...(LLM_API_KEY ? { authorization: `Bearer ${LLM_API_KEY}` } : {}), 'content-type': 'application/json', 'accept-encoding': 'identity' },
     });
     const parsed = strictJsonFromText(res.data?.choices?.[0]?.message?.content || '');
     const lessons = Array.isArray(parsed.lessons)

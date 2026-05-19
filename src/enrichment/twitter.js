@@ -22,8 +22,8 @@ function toFxTwitter(url) {
 
 function toFxTwitterApi(url) {
   return String(url || '')
-    .replace(/^https?:\/\/(www\.)?x\.com/i, 'https://api.fxtwitter.com')
-    .replace(/^https?:\/\/(www\.)?twitter\.com/i, 'https://api.fxtwitter.com');
+    .replace(/^https?:\/\/(www\.)?x\.com/i, 'https://api.vxtwitter.com')
+    .replace(/^https?:\/\/(www\.)?twitter\.com/i, 'https://api.vxtwitter.com');
 }
 
 function decodeHtmlEntities(text) {
