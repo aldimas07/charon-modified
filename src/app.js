@@ -7,6 +7,7 @@ import { monitorPositions } from './execution/positions.js';
 import { processCandidateFromSignals, maybeProcessDegenCandidate } from './pipeline/orchestrator.js';
 import { sendTelegram } from './telegram/send.js';
 import { makeFailureTracker } from './utils.js';
+import { startChannelListener, stopChannelListener, setCandidateHandler as setTgCandidateHandler, setDegenHandler as setTgDegenHandler } from './signals/telegramChannel.js';
 import { startEventMonitor, stopEventMonitor, onPumpEvent, syncWatchedMints } from './enrichment/eventMonitor.js';
 
 setDefaultResultOrder('ipv4first');
@@ -104,4 +105,12 @@ export async function startCharon() {
   }, 'largeTrade');
 
   console.log('[event-monitor] pump.fun event monitor started');
+
+  // ── Telegram Channel Signal Listener ───────────────────────────────
+  // Monitors public Telegram channels for token signals (MTProto userbot)
+  setTgCandidateHandler(processCandidateFromSignals);
+  setTgDegenHandler(maybeProcessDegenCandidate);
+  startChannelListener().then(ok => {
+    if (ok) console.log('[tg:listener] channel signal listener started');
+  });
 }

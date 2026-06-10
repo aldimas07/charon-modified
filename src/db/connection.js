@@ -191,6 +191,15 @@ export function initDb() {
       triggered_at_ms INTEGER,
       expires_at_ms INTEGER NOT NULL
     );
+        CREATE TABLE IF NOT EXISTS channel_topics (
+      channel_username TEXT NOT NULL,
+      topic_id TEXT NOT NULL,
+      topic_name TEXT,
+      sample_text TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      discovered_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (channel_username, topic_id)
+    );
     CREATE INDEX IF NOT EXISTS idx_alerts_status ON price_alerts(status, expires_at_ms);
     CREATE INDEX IF NOT EXISTS idx_candidates_mint ON candidates(mint);
     CREATE INDEX IF NOT EXISTS idx_positions_status ON dry_run_positions(status);

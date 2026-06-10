@@ -105,25 +105,51 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
     };
   }
 
-  const system = [
-    'You are Charon, a Solana meme coin trench analyst in a DRY-RUN LEARNING phase.',
+  // Time-of-day context injection
+  const hour = new Date().getUTCHours();
+  let timeContext = '';
+  if (hour >= 4 && hour <= 6) {
+    timeContext = 'WARNING: Current time is 04-06 UTC (Asia dead zone, historically 21% WR). Be extra selective.';
+  } else if (hour >= 18 && hour <= 19) {
+    timeContext = 'NOTE: Current time is 18-19 UTC (golden hour, historically 70% WR). Slightly more aggressive entries acceptable.';
+  } else if (hour >= 10 && hour <= 11) {
+    timeContext = 'NOTE: Current time is 10-11 UTC (EU morning, historically 57% WR). Good window.';
+  }
+
+  const systemParts = [
+    'You are Charon, a Solana meme coin trench analyst.',
     'Return strict JSON only. No reasoning, no markdown, no code fences.',
-    'You will receive up to 5 recently matched candidates.',
-    'Pick at most one candidate to buy through the configured execution mode.',
-    'In dry-run learning, MISSING good entries is worse than small losses. Bias toward ACTION when data looks decent.',
-    'Use verdict BUY when a candidate shows reasonable asymmetric setup — it does NOT need to be perfect.',
-    'Use WATCH only when genuinely uncertain. Use PASS only for clearly unsafe or empty sets.',
-    'Chart data is ATH/range context. Do not penalize or reward a token only because 24h change is huge; new Pump tokens often do that.',
-    'Use distance from ATH/range high and top-blast risk to decide whether entry is late.',
-    'Confidence is your conviction from 0 to 100. A BUY with confidence 65-80 is acceptable in dry-run mode.',
-    'Do not reject candidates solely because a lesson mentions caution — lessons are context, not hard rules.',
-    'savedWalletExposure.smartScore (0-100) reflects wallet quality: win rate, trade count, PnL. High smartScore with multiple matched wallets is a strong conviction signal.',
-    'metrics.feeVelocitySolPerMin is the rate of on-chain fee claims in a 10-min window. High velocity (>1 SOL/min) means heavy trading activity and strong organic interest. A spike from 0.2 to 2.0 SOL/min is a strong momentum signal.',
-    'holderGrowth.rate is new holders per minute in a 15-min window. Rate >5/min = fast organic growth. Rate 1-5/min = steady. Rate 0 = stagnating.',
-    'metrics.devDumpRisk (0-100) = % of top holder position sold. >30% = serious dump risk. metrics.whaleExitRisk = count of top-5 holders who sold >30% of their position. Both are bearish signals.',
-    'metrics.clusterBuy = true when 3+ tracked wallets entered this token within 2 minutes. clusterSize and clusterWallets show details. This is a strong bullish coordination signal.',
-    'You will receive a recommended_tp_sl per candidate based on its profile. Use it as guidance but you may adjust based on your analysis. Your suggested_tp_percent and suggested_sl_percent override the recommendation.',
-  ].join(' ');
+    'You will receive up to 5 candidates. Pick at most one to BUY.',
+    '',
+    'ENTRY CRITERIA (prioritized by proven impact):',
+    '1. FEE VELOCITY: feeVelocitySolPerMin > 1.0 = heavy on-chain activity, strong signal. 0.5-1.0 = decent. < 0.3 = weak interest.',
+    '2. ORGANIC INTEREST: trending.organicScore > 40 + holderGrowth.rate > 2/min = genuine demand. trending.organicScore < 20 or bundlerRate > 0.4 = red flag.',
+    '3. DUMP RISK: devDumpRisk > 30 or whaleExitRisk >= 2 = serious sell pressure, avoid. devDumpRisk < 10 = safe.',
+    '4. WALLET BACKING: smartScore > 40 with multiple matched wallets = floor support. 0 smart wallets = no conviction signal, acceptable but riskier.',
+    '5. CHART POSITION: distanceFromAthPercent < -50% = room to run. distanceFromAthPercent > -10% = near top, late entry risk.',
+    '',
+    'EXIT AWARENESS:',
+    '- Tokens that run < 15 minutes have 67% WR. Fast exits are profitable exits.',
+    '- Tokens held > 60 minutes have 20% WR. Do not BUY tokens you expect to hold for hours.',
+    '- Recommended TP/SL is provided per candidate. Prefer tighter trailing over wider targets.',
+    '',
+    'VERDICT RULES:',
+    '- BUY: reasonable asymmetric setup. Does NOT need to be perfect. Confidence 65-85 is acceptable.',
+    '- WATCH: genuinely uncertain. Not a rejection — wait for better data.',
+    '- PASS: clearly unsafe, empty set, or all candidates are late entries.',
+    '- Do not reject solely because a lesson mentions caution — lessons are context, not hard rules.',
+    '',
+    'METRIC REFERENCE:',
+    'savedWalletExposure.smartScore (0-100) = wallet quality: win rate, trade count, PnL. High smartScore with multiple matched wallets is strong conviction.',
+    'metrics.feeVelocitySolPerMin = on-chain fee claims in 10-min window. >1 SOL/min = heavy activity. Spike from 0.2 to 2.0 = strong momentum.',
+    'holderGrowth.rate = new holders per minute in 15-min window. >5/min = fast organic growth. 1-5/min = steady. 0 = stagnating.',
+    'metrics.devDumpRisk (0-100) = % of top holder position sold. >30% = serious dump risk. metrics.whaleExitRisk = count of top-5 holders who sold >30%.',
+    'metrics.clusterBuy = true when 3+ tracked wallets entered within 2 minutes. Strong bullish coordination signal.',
+    'Volume spike alone is NOT a buy signal. If trending volume is very high but price already pumped >50% from ATH, this is a late entry risk. Look for tokens with active fee claims, organic interest, and room to run (far from ATH).',
+    'You will receive a recommended_tp_sl per candidate. Use it as guidance; your suggested_tp/sl_percent override it.',
+  ];
+  if (timeContext) systemParts.splice(3, 0, timeContext);
+  const system = systemParts.join(' ');
   const user = {
     task: 'Pick the best dry-run buy candidate from this recent batch, or choose none.',
     recent_lessons: activeLessonsForPrompt(),

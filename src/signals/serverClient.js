@@ -31,7 +31,11 @@ async function triggerCandidate({ mint, fee, signature, graduatedCoin, trendingT
 }
 
 export async function fetchServerSignals() {
-  try {
+   // Skip if signal server is disabled via settings
+  const { boolSetting } = await import('../db/settings.js');
+  if (!boolSetting('signal_server_enabled', true)) return;
+
+ try {
     const url = new URL('/api/signals', SIGNAL_SERVER_URL);
     url.searchParams.set('limit', '100');
     url.searchParams.set('minSources', '2');

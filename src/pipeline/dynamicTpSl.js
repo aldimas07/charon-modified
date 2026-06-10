@@ -111,6 +111,49 @@ export function dynamicTpSl(candidate, strat) {
     reasoning.push(`whale exits (${whaleExitRisk}): SL tighter`);
   }
 
+  // ── Risk-based trailing tightening ───────────────────────────────
+  if (devDumpRisk > 15 || whaleExitRisk >= 2) {
+    trailingPercent = Math.round(trailingPercent * 0.5);
+    reasoning.push(`risk-based trailing tighten (devDump=${devDumpRisk}, whaleExit=${whaleExitRisk}): trailing -50%`);
+  }
+
+  // ── Time-of-day adjustment ───────────────────────────────────────
+  const hour = new Date().getUTCHours();
+  if (hour >= 4 && hour <= 6) {
+    baseTp *= 0.7;
+    baseSl *= 1.2;
+    reasoning.push('death zone (04-06 UTC): TP -30%, SL tighter');
+  } else if (hour >= 18 && hour <= 19) {
+    baseTp *= 1.2;
+    baseSl *= 0.9;
+    reasoning.push('golden hour (18-19 UTC): TP +20%, SL looser');
+  }
+
+  // ── BB/StochRSI factor ───────────────────────────────────────────
+  const bb = candidate.metrics?.bb_percent_b;
+  const stochrsiK = candidate.metrics?.stochrsi_k;
+  if (bb != null) {
+    if (bb < 0.1) {
+      baseTp *= 1.3;
+      trailingPercent = Math.max(5, trailingPercent - 3);
+      reasoning.push(`extreme oversold BB (${bb.toFixed(2)}): TP +30%, tighter trail`);
+    } else if (bb > 1.0) {
+      baseTp *= 0.7;
+      baseSl *= 1.3;
+      reasoning.push(`breakout above upper BB (${bb.toFixed(2)}): TP -30%, SL tighter`);
+    }
+  }
+  if (stochrsiK != null) {
+    if (stochrsiK < 20) {
+      baseTp *= 1.2;
+      reasoning.push(`oversold StochRSI (${stochrsiK.toFixed(1)}): TP +20%`);
+    } else if (stochrsiK > 80) {
+      baseTp *= 0.7;
+      baseSl *= 1.2;
+      reasoning.push(`overbought StochRSI (${stochrsiK.toFixed(1)}): TP -30%, SL tighter`);
+    }
+  }
+
   // ── Clamp values ─────────────────────────────────────────────────
   const tp = Math.round(Math.max(10, Math.min(500, baseTp)));
   const sl = Math.round(Math.min(-5, Math.max(-60, baseSl)));

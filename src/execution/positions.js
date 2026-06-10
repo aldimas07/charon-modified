@@ -125,8 +125,21 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
   const tpHit = pnlPercent >= Number(position.tp_percent);
   const slHit = pnlPercent <= Number(position.sl_percent);
   const trailingArmed = position.trailing_armed || (position.trailing_enabled && tpHit);
+
+  // Conviction decay: progressive trailing tighten based on hold duration
+  const baseTrailingPercent = Number(position.trailing_percent);
+  let effectiveTrailingPercent = baseTrailingPercent;
+  if (trailingArmed && position.opened_at_ms) {
+    const holdMin = (now() - position.opened_at_ms) / 60000;
+    if (holdMin > 45) {
+      effectiveTrailingPercent = baseTrailingPercent * 0.25; // 75% tighter
+    } else if (holdMin > 30) {
+      effectiveTrailingPercent = baseTrailingPercent * 0.5; // 50% tighter
+    }
+  }
+
   const trailDrop = highWaterMcap > 0 ? (Number(mcap) / highWaterMcap - 1) * 100 : 0;
-  const trailingHit = trailingArmed && position.trailing_enabled && trailDrop <= -Math.abs(Number(position.trailing_percent));
+  const trailingHit = trailingArmed && position.trailing_enabled && trailDrop <= -Math.abs(effectiveTrailingPercent);
   let exitReason = null;
   let closed = false;
 

@@ -3,7 +3,7 @@ import { TELEGRAM_CHAT_ID } from '../config.js';
 import { now, json } from '../utils.js';
 import { escapeHtml, fmtPct } from '../format.js';
 import { db } from '../db/connection.js';
-import { numSetting, boolSetting, setSetting, activeStrategy, setActiveStrategy, strategyById, updateStrategyConfig } from '../db/settings.js';
+import { numSetting, boolSetting, setSetting, setting, activeStrategy, setActiveStrategy, strategyById, updateStrategyConfig } from '../db/settings.js';
 import { candidateById, latestCandidateByMint, updateCandidateStatus } from '../db/candidates.js';
 import { storeDecision, logDecisionEvent } from '../db/decisions.js';
 import {
@@ -20,6 +20,8 @@ import {
   positionButtons,
   strategyMenuText,
   strategyKeyboard,
+  sourcesText,
+  sourcesKeyboard,
 } from './menus.js';
 import { sendTelegram, sendBatch, sendPositionOpen } from './send.js';
 import { candidateSummary, formatPosition } from './format.js';
@@ -152,6 +154,29 @@ export async function handleMessage(msg) {
     setSetting(key, value === 'off' ? '0' : value);
     return bot.sendMessage(chatId, filtersText(), { parse_mode: 'HTML' });
   }
+  if (text.startsWith('/sources')) {
+    return bot.sendMessage(chatId, sourcesText(), { parse_mode: 'HTML', ...sourcesKeyboard() });
+  }
+  if (text.startsWith('/channeladd')) {
+    const username = text.split(/\s+/)[1];
+    if (!username) return bot.sendMessage(chatId, 'Usage: /channeladd <username>');
+    const clean = username.replace('@', '').replace('https://t.me/', '');
+    const current = setting('tg_signal_channels', '');
+    const channels = current ? current.split(',').map(c => c.trim().split(':')[0]) : [];
+    if (channels.includes(clean)) return bot.sendMessage(chatId, '@' + clean + ' already exists.');
+    const updated = current ? current + ',' + clean : clean;
+    setSetting('tg_signal_channels', updated);
+    return bot.sendMessage(chatId, 'Added @' + clean + '.\n\n' + sourcesText(), { parse_mode: 'HTML', ...sourcesKeyboard() });
+  }
+  if (text.startsWith('/channelremove')) {
+    const username = text.split(/\s+/)[1];
+    if (!username) return bot.sendMessage(chatId, 'Usage: /channelremove <username>');
+    const clean = username.replace('@', '').replace('https://t.me/', '');
+    const current = setting('tg_signal_channels', '');
+    const updated = current.split(',').map(c => c.trim().split(':')[0]).filter(c => c && c !== clean).join(',');
+    setSetting('tg_signal_channels', updated);
+    return bot.sendMessage(chatId, 'Removed @' + clean + '.\n\n' + sourcesText(), { parse_mode: 'HTML', ...sourcesKeyboard() });
+  }
 }
 
 export async function sendCandidate(chatId, id) {
@@ -263,6 +288,9 @@ export function setupTelegram() {
     { command: 'walletremove', description: 'Remove saved wallet' },
     { command: 'wallets', description: 'List saved wallets' },
     { command: 'history', description: 'Dry-run history (6h|12h|1d compact|full N)' },
+    { command: 'sources', description: 'Show/configure signal sources' },
+    { command: 'channeladd', description: 'Add Telegram channel signal source' },
+    { command: 'channelremove', description: 'Remove Telegram channel signal source' },
   ]).catch(err => console.log(`[telegram] commands ${err.message}`));
 
   bot.on('callback_query', query => handleCallback(query).catch(err => console.log(`[callback] ${err.message}`)));

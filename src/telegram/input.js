@@ -1,7 +1,7 @@
 import { bot } from './bot.js';
 import { TELEGRAM_CHAT_ID } from '../config.js';
 import { now, parseNumericInput } from '../utils.js';
-import { activeStrategy, setSetting, updateStrategyConfig } from '../db/settings.js';
+import { activeStrategy, setSetting, setting, updateStrategyConfig } from '../db/settings.js';
 import {
   filtersText,
   filtersKeyboard,
@@ -10,6 +10,8 @@ import {
   strategyKeyboard,
   strategyMenuText,
   strategyNumericLabels,
+  sourcesText,
+  sourcesKeyboard,
 } from './menus.js';
 
 export const pendingNumericInputs = new Map();
@@ -51,6 +53,45 @@ export async function requestStrategyNumericInput(query, key) {
 export async function consumeNumericFilterInput(chatId, text, userMessageId = null) {
   const pending = pendingNumericInputs.get(String(chatId));
   if (!pending) return false;
+  if (pending.type === 'tg_channel_add') {
+    pendingNumericInputs.delete(String(chatId));
+    const clean = text.trim().replace('@', '').replace('https://t.me/', '');
+    const current = setting('tg_signal_channels', '');
+    const channels = current ? current.split(',').map(c => c.trim().split(':')[0]) : [];
+    if (channels.includes(clean)) {
+      await bot.sendMessage(chatId, `@${clean} already in channel list.`);
+      return true;
+    }
+    const updated = current ? `${current},${clean}` : clean;
+    setSetting('tg_signal_channels', updated);
+    await bot.sendMessage(chatId, `Added @${clean}.\n\n${sourcesText()}`, { parse_mode: 'HTML', ...sourcesKeyboard() });
+    return true;
+  }
+
+  if (pending.type === 'tg_topic_add') {
+    pendingNumericInputs.delete(String(chatId));
+    const topicId = text.trim().replace(/[^0-9]/g, '');
+    if (!topicId) {
+      await bot.sendMessage(chatId, 'Invalid topic ID. Must be a numeric ID.');
+      return true;
+    }
+    const channel = pending.channel;
+    const { db } = await import('../db/connection.js');
+    const existing = db.prepare('SELECT 1 FROM channel_topics WHERE channel_username = ? AND topic_id = ?').get(channel, topicId);
+    if (existing) {
+      await bot.sendMessage(chatId, 'Topic ' + topicId + ' already exists for @' + channel + '.');
+      return true;
+    }
+    db.prepare(
+      'INSERT INTO channel_topics (channel_username, topic_id, topic_name, enabled, discovered_at_ms) VALUES (?, ?, ?, 1, ?)'
+    ).run(channel, topicId, 'Topic ' + topicId, Date.now());
+    const topics = db.prepare(
+      'SELECT topic_id, topic_name, sample_text, enabled FROM channel_topics WHERE channel_username = ? ORDER BY discovered_at_ms DESC'
+    ).all(channel);
+    const { topicListText, topicListKeyboard } = await import('./menus.js');
+    await bot.sendMessage(chatId, topicListText(channel, topics), { parse_mode: 'HTML', ...topicListKeyboard(channel, topics) });
+    return true;
+  }
   if (now() - pending.at > 5 * 60 * 1000) {
     pendingNumericInputs.delete(String(chatId));
     await bot.sendMessage(chatId, 'That input expired. Tap the filter input button again.');

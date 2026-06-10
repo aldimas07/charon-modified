@@ -16,6 +16,10 @@ import {
   sendTpSlDefaults,
   strategyMenuText,
   strategyKeyboard,
+  sourcesText,
+  sourcesKeyboard,
+  topicListText,
+  topicListKeyboard,
 } from './menus.js';
 import { sendTelegram, sendBatch, sendPositionOpen, sendTradeIntent } from './send.js';
 import { candidateSummary } from './format.js';
@@ -50,7 +54,12 @@ export async function handleCallback(query) {
     const key = data.replace('toggle:', '');
     setSetting(key, boolSetting(key, key === 'trending_enabled') ? 'false' : 'true');
     return editMenuMessage(query, filtersText(), filtersKeyboard());
-  }
+    }
+    if (data === 'toggle:signal_server_enabled') {
+     const current = boolSetting('signal_server_enabled', true);
+     setSetting('signal_server_enabled', current ? 'false' : 'true');
+     return editMenuMessage(query, sourcesText(), sourcesKeyboard());
+    }
   if (data === 'menu:filters') return editMenuMessage(query, filtersText(), filtersKeyboard());
   if (data === 'menu:strategy') return editMenuMessage(query, strategyMenuText(), strategyKeyboard());
   if (data === 'menu:wallets') return editMenuMessage(query, walletsText(), navKeyboard());
@@ -65,6 +74,89 @@ export async function handleCallback(query) {
       { text: 'Filters', callback_data: 'menu:filters' },
     ],
   ]));
+
+  // Sources menu
+  if (data === 'menu:sources') return editMenuMessage(query, sourcesText(), sourcesKeyboard());
+  if (data.startsWith('toggle:tg_require_mint_locked') || data.startsWith('toggle:tg_require_freeze_locked')) {
+    const key = data.replace('toggle:', '');
+    setSetting(key, boolSetting(key, key === 'tg_require_mint_locked') ? 'false' : 'true');
+    return editMenuMessage(query, sourcesText(), sourcesKeyboard());
+  }
+  if (data.startsWith('source:rm_channel:')) {
+    const ch = data.replace('source:rm_channel:', '');
+    const current = setting('tg_signal_channels', '');
+    const updated = current.split(',').map(c => c.trim().split(':')[0]).filter(c => c && c !== ch).join(',');
+    setSetting('tg_signal_channels', updated);
+    return editMenuMessage(query, sourcesText(), sourcesKeyboard());
+  }
+  if (data === 'source:add_channel') {
+    const { pendingNumericInputs } = await import('./input.js');
+    pendingNumericInputs.set(String(chatId), { type: 'tg_channel_add', key: 'tg_channel_add' });
+    return bot.sendMessage(chatId, 'Send the Telegram channel username (e.g. @channel_name or channel_name):');
+  }
+  // Topic management callbacks
+  if (data.startsWith('topic:list:')) {
+    const channel = data.replace('topic:list:', '');
+    const { db } = await import('../db/connection.js');
+    const topics = db.prepare(
+      'SELECT topic_id, topic_name, sample_text, enabled FROM channel_topics WHERE channel_username = ? ORDER BY discovered_at_ms DESC'
+    ).all(channel);
+    return editMenuMessage(query, topicListText(channel, topics), topicListKeyboard(channel, topics));
+  }
+  if (data.startsWith('topic:toggle:')) {
+    const parts = data.replace('topic:toggle:', '').split(':');
+    const channel = parts[0];
+    const topicId = parts.slice(1).join(':');
+    const { db } = await import('../db/connection.js');
+    const current = db.prepare('SELECT enabled FROM channel_topics WHERE channel_username = ? AND topic_id = ?').get(channel, topicId);
+    if (current) {
+      db.prepare('UPDATE channel_topics SET enabled = ? WHERE channel_username = ? AND topic_id = ?').run(current.enabled ? 0 : 1, channel, topicId);
+    }
+    const topics = db.prepare(
+      'SELECT topic_id, topic_name, sample_text, enabled FROM channel_topics WHERE channel_username = ? ORDER BY discovered_at_ms DESC'
+    ).all(channel);
+    return editMenuMessage(query, topicListText(channel, topics), topicListKeyboard(channel, topics));
+  }
+  if (data.startsWith('topic:refresh:')) {
+    const channel = data.replace('topic:refresh:', '');
+    const { fetchChannelTopics, getClient } = await import('../signals/telegramChannel.js');
+    if (!getClient()) {
+      return bot.sendMessage(chatId, 'MTProto client not connected. Restart Charon first.');
+    }
+    await bot.sendMessage(chatId, 'Scanning topics...');
+    const topics = await fetchChannelTopics(channel);
+    if (!topics.length) {
+      return bot.sendMessage(chatId, 'No forum topics found. Channel may not be a forum group.');
+    }
+    const { db } = await import('../db/connection.js');
+    const ts = Date.now();
+    const upsert = db.prepare(
+      'INSERT INTO channel_topics (channel_username, topic_id, topic_name, enabled, discovered_at_ms) VALUES (?, ?, ?, COALESCE((SELECT enabled FROM channel_topics WHERE channel_username = ? AND topic_id = ?), 1), ?) ON CONFLICT(channel_username, topic_id) DO UPDATE SET topic_name = excluded.topic_name, discovered_at_ms = excluded.discovered_at_ms'
+    );
+    for (const t of topics) {
+      upsert.run(channel, t.id, t.title, channel, t.id, ts);
+    }
+    const allTopics = db.prepare(
+      'SELECT topic_id, topic_name, sample_text, enabled FROM channel_topics WHERE channel_username = ? ORDER BY discovered_at_ms DESC'
+    ).all(channel);
+    return editMenuMessage(query, topicListText(channel, allTopics), topicListKeyboard(channel, allTopics));
+  }
+  if (data.startsWith('topic:add:')) {
+    const channel = data.replace('topic:add:', '');
+    const { pendingNumericInputs } = await import('./input.js');
+    pendingNumericInputs.set(String(chatId), { type: 'tg_topic_add', channel, at: Date.now() });
+    return bot.sendMessage(chatId, 'Send the topic ID (numeric) to add.\n\nTo find topic IDs: forward a message from the topic to @JsonDumpBot or check the message link (t.me/c/xxx/TOPIC_ID).');
+  }
+
+  if (data.startsWith('cycle:')) {
+    const [, key, valuesStr] = data.split(':');
+    const values = valuesStr.split(',');
+    const current = setting(key, values[0]);
+    const idx = values.indexOf(current);
+    const next = values[(idx + 1) % values.length];
+    setSetting(key, next);
+    return editMenuMessage(query, sourcesText(), sourcesKeyboard());
+  }
 
   if (data.startsWith('strategy:select:')) {
     const strategyId = data.replace('strategy:select:', '');

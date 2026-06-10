@@ -11,3 +11,9 @@ node_modules/
 npm-debug.log*
 
 ARCHITECTURE.md
+
+# Dev artifacts
+.claude/
+_check.mjs
+*.bak
+IMPROVEMENT_PLAN.md

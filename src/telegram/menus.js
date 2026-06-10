@@ -20,6 +20,9 @@ export function menuKeyboard() {
           { text: 'Positions', callback_data: 'menu:positions' },
           { text: 'PnL', callback_data: 'menu:pnl' },
         ],
+         [
+           { text: '📡 Sources', callback_data: 'menu:sources' },
+         ],
       ],
     },
   };
@@ -463,4 +466,111 @@ async function editMenuMessage(query, text, extra = {}) {
       ...extra,
     });
   }
+}
+export function topicListText(channel, topics) {
+  const lines = [
+    `<b>Topics for @${escapeHtml(channel)}</b>`,
+    '',
+  ];
+  if (topics.length === 0) {
+    lines.push('No topics discovered yet.');
+    lines.push('');
+    lines.push('Tap "Refresh" to scan the channel for forum topics.');
+  } else {
+    const enabled = topics.filter(t => t.enabled).length;
+    lines.push(`Status: ${enabled}/${topics.length} topics active`);
+    lines.push('');
+    for (const t of topics) {
+      const status = t.enabled ? '🟢' : '🔴';
+      const name = escapeHtml(t.topic_name || 'Topic ' + t.topic_id);
+      const sample = t.sample_text ? escapeHtml(t.sample_text.slice(0, 40)) : '';
+      lines.push(`${status} <code>${t.topic_id}</code> — ${name}`);
+      if (sample) lines.push(`   └ ${sample}...`);
+    }
+  }
+  lines.push('');
+  lines.push('Toggle topics on/off. Only enabled topics are listened to.');
+  lines.push('If no topics are enabled, ALL messages are accepted.');
+  return lines.join('\n');
+}
+
+export function topicListKeyboard(channel, topics) {
+  const buttons = (topics || []).map(t => [{
+    text: `${t.enabled ? '🟢' : '🔴'} ${t.topic_name || 'Topic ' + t.topic_id}`,
+    callback_data: `topic:toggle:${channel}:${t.topic_id}`,
+  }]);
+  buttons.push([
+    { text: '🔄 Refresh Topics', callback_data: `topic:refresh:${channel}` },
+    { text: '➕ Add by ID', callback_data: `topic:add:${channel}` },
+  ]);
+  buttons.push([{ text: '🔙 Back to Sources', callback_data: 'menu:sources' }]);
+  return { reply_markup: { inline_keyboard: buttons } };
+}
+
+export function sourcesText() {
+  const serverEnabled = !!setting('SIGNAL_SERVER_URL', process.env.SIGNAL_SERVER_URL || '');
+  const trendingOn = boolSetting('trending_enabled', true);
+  const trendingSrc = setting('trending_source', 'jupiter');
+  const tgChannels = setting('tg_signal_channels', '');
+  const tgOn = !!tgChannels;
+  const channelList = tgChannels ? tgChannels.split(',').map(c => c.trim().split(':')[0]) : [];
+
+  return [
+    '📡 <b>Signal Sources</b>',
+    '',
+    `1. Signal Server: <b>${serverEnabled ? 'on' : 'off'}</b>`,
+    `   ${boolSetting('signal_server_enabled', true) ? '🟢' : '🔴'} Source: ${escapeHtml(setting('SIGNAL_SERVER_URL', 'not set').replace(/https?:\/\//, '').slice(0, 30))}`,
+    '',
+    `2. Trending: <b>${trendingOn ? 'on' : 'off'}</b>`,
+    `   Provider: <b>${escapeHtml(trendingSrc)}</b> · Interval: ${escapeHtml(setting('trending_interval', '5m'))}`,
+    `   Min vol: ${fmtUsd(numSetting('trending_min_volume_usd', 0))} · Min swaps: ${numSetting('trending_min_swaps', 0)}`,
+    '',
+    `3. Telegram Channels: <b>${tgOn ? 'on' : 'off'}</b>`,
+    tgOn ? channelList.map(c => `   • @${escapeHtml(c)}`).join('\n') : '   No channels configured',
+    `   Mcap range: $${numSetting('tg_min_mcap_usd', 1000).toLocaleString()} - $${numSetting('tg_max_mcap_usd', 200000).toLocaleString()}`,
+    `   Mint locked: ${boolSetting('tg_require_mint_locked', true) ? 'required' : 'optional'}`,
+    `   Topic filter: per-channel (tap Topics button)`,
+    '',
+    'Use buttons below to toggle/configure.',
+  ].join('\n');
+}
+
+export function sourcesKeyboard() {
+  const trendingOn = boolSetting('trending_enabled', true);
+  const tgChannels = setting('tg_signal_channels', '');
+  const channelList = tgChannels ? tgChannels.split(',').map(c => c.trim().split(':')[0]) : [];
+
+  const channelButtons = channelList.map(ch => [
+    { text: `@${ch}`, callback_data: 'noop' },
+    { text: '\u{1F4CB} Topics', callback_data: `topic:list:${ch}` },
+    { text: '\u274C Remove', callback_data: `source:rm_channel:${ch}` },
+  ]);
+
+  return {
+    reply_markup: {
+      inline_keyboard: [
+         [{ text: '── Signal Server ──', callback_data: 'noop' }],
+         [
+           { text: boolSetting('signal_server_enabled', true) ? '🟢 Server ON' : '🔴 Server OFF', callback_data: 'toggle:signal_server_enabled' },
+         ],
+         [{ text: '── Trending ──', callback_data: 'noop' }],
+        [
+          { text: trendingOn ? '🟢 ON' : '🔴 OFF', callback_data: 'toggle:trending_enabled' },
+          { text: 'Jupiter', callback_data: 'set:trending_source:jupiter' },
+          { text: 'GMGN', callback_data: 'set:trending_source:gmgn' },
+        ],
+        [
+          { text: `Interval: ${setting('trending_interval', '5m')}`, callback_data: 'cycle:trending_interval:5m,1h,6h,24h' },
+        ],
+        [{ text: '── Telegram Channels ──', callback_data: 'noop' }],
+        ...channelButtons,
+        [{ text: '➕ Add Channel', callback_data: 'source:add_channel' }],
+        [
+          { text: 'Mint Locked', callback_data: `toggle:tg_require_mint_locked` },
+          { text: 'Freeze Locked', callback_data: `toggle:tg_require_freeze_locked` },
+        ],
+        [{ text: 'Back', callback_data: 'menu:main' }],
+      ],
+    },
+  };
 }
