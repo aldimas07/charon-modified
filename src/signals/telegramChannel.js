@@ -191,7 +191,7 @@ export async function fetchChannelTopics(username) {
 
     // Try channels.getForumTopics first (gramjs raw API)
     try {
-      const { Api } = await import('telegram/tl');
+      const { Api } = await import('telegram/tl/index.js');
       const result = await client.invoke(
         new Api.channels.GetForumTopics({
           channel: entity,
