@@ -57,6 +57,27 @@ function getChannelConfig() {
 }
 
 /**
+ * Parse skip patterns from settings
+ * Format: "channel:regex_pattern,channel2:regex_pattern2"
+ * Returns Map<channel, RegExp>
+ */
+function getChannelSkipPatterns() {
+  const raw = setting('tg_channel_skip_patterns', '');
+  if (!raw) return new Map();
+  const map = new Map();
+  for (const entry of raw.split(',')) {
+    const colonIdx = entry.indexOf(':');
+    if (colonIdx < 0) continue;
+    const channel = entry.slice(0, colonIdx).trim();
+    const pattern = entry.slice(colonIdx + 1).trim();
+    if (channel && pattern) {
+      try { map.set(channel, new RegExp(pattern, 'i')); } catch {}
+    }
+  }
+  return map;
+}
+
+/**
  * Handle incoming message from monitored channel
  */
 async function handleMessage(event) {
@@ -113,6 +134,12 @@ async function handleMessage(event) {
      }
 
     const text = msg.text;
+
+    // Skip patterns: per-channel regex filter (e.g. skip DEAD/HIT messages)
+    const skipPatterns = getChannelSkipPatterns();
+    const skipRe = skipPatterns.get(msgChannel);
+    if (skipRe && skipRe.test(text)) return;
+
     const parsed = parseChannelMessage(text);
     if (!parsed) return;
 
@@ -124,13 +151,10 @@ async function handleMessage(event) {
     seenMints.set(parsed.mint, now());
     prune(seenMints, dedupMs * 2);
 
-    // Quality check
+    // Pre-enrichment quality check (mint + generic confidence only)
+    // Mcap/top10 checks moved to filterCandidate (post-enrichment)
     const quality = signalQualityCheck(parsed, {
-      minMarketCapUsd: numSetting('tg_min_mcap_usd', 1000),
-      maxMarketCapUsd: numSetting('tg_max_mcap_usd', 200_000),
-      maxTop10Percent: numSetting('tg_max_top10_pct', 50),
-      requireMintLocked: boolSetting('tg_require_mint_locked', true),
-      requireFreezeLocked: boolSetting('tg_require_freeze_locked', false),
+      minGenericConfidence: numSetting('tg_min_generic_confidence', 2),
     });
 
     if (!quality.pass) {

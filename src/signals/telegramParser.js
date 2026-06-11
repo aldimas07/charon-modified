@@ -335,29 +335,21 @@ export function parseChannelMessage(text) {
 }
 
 /**
- * Validate if signal meets minimum quality thresholds
+ * Pre-enrichment quality check (lightweight).
+ * Only validates mint existence and generic parse confidence.
+ * Mcap/top10/mint-locked checks moved to filterCandidate (post-enrichment)
+ * where GMGN/Jupiter provide real data.
  */
 export function signalQualityCheck(signal, thresholds = {}) {
   const {
-    minMarketCapUsd = 0,
-    maxMarketCapUsd = 200_000,
-    maxTop10Percent = 40,
-    requireMintLocked = true,
-    requireFreezeLocked = false,
+    minGenericConfidence = 2,
   } = thresholds;
 
   if (!signal?.mint) return { pass: false, reason: 'no_mint' };
-  if (signal.marketCapUsd < minMarketCapUsd) return { pass: false, reason: 'mcap_too_low' };
-  if (signal.marketCapUsd > maxMarketCapUsd) return { pass: false, reason: 'mcap_too_high' };
-  if (maxTop10Percent > 0 && signal.top10Percent && signal.top10Percent > maxTop10Percent) {
-    return { pass: false, reason: 'top10_concentration' };
-  }
-  // Relax mint/freeze check for non-KOL formats (swap/multibuy/generic may not have this info)
-  if (requireMintLocked && signal.format === 'kol_aped' && !signal.mintLocked) {
-    return { pass: false, reason: 'mint_not_locked' };
-  }
-  if (requireFreezeLocked && signal.format === 'kol_aped' && !signal.freezeLocked) {
-    return { pass: false, reason: 'freeze_not_locked' };
+
+  // Generic parser confidence: reject if too few metadata fields extracted
+  if (signal.format === 'generic' && (signal.confidence ?? 0) < minGenericConfidence) {
+    return { pass: false, reason: `generic_confidence_low: ${signal.confidence ?? 0} < ${minGenericConfidence}` };
   }
 
   return { pass: true, reason: null };

@@ -187,7 +187,7 @@ describe('telegramParser', () => {
   });
 
   describe('signalQualityCheck', () => {
-    it('passes for valid generic signal', () => {
+    it('passes for valid generic signal with confidence', () => {
       const signal = {
         mint: PUMP_MINT,
         marketCapUsd: 50000,
@@ -195,12 +195,10 @@ describe('telegramParser', () => {
         mintLocked: false,
         freezeLocked: false,
         format: 'generic',
+        confidence: 3,
       };
       const result = signalQualityCheck(signal, {
-        minMarketCapUsd: 1000,
-        maxMarketCapUsd: 200_000,
-        maxTop10Percent: 50,
-        requireMintLocked: true,
+        minGenericConfidence: 2,
       });
       assert.equal(result.pass, true);
     });
@@ -212,36 +210,23 @@ describe('telegramParser', () => {
       assert.equal(result.reason, 'no_mint');
     });
 
-    it('fails for mcap too low', () => {
-      const signal = { mint: PUMP_MINT, marketCapUsd: 500 };
-      const result = signalQualityCheck(signal, { minMarketCapUsd: 1000 });
+    it('fails for generic with low confidence', () => {
+      const signal = { mint: PUMP_MINT, marketCapUsd: 0, format: 'generic', confidence: 0 };
+      const result = signalQualityCheck(signal, { minGenericConfidence: 2 });
       assert.equal(result.pass, false);
-      assert.equal(result.reason, 'mcap_too_low');
+      assert.match(result.reason, /generic_confidence_low/);
     });
 
-    it('fails for mcap too high', () => {
-      const signal = { mint: PUMP_MINT, marketCapUsd: 500_000 };
-      const result = signalQualityCheck(signal, { maxMarketCapUsd: 200_000 });
-      assert.equal(result.pass, false);
-      assert.equal(result.reason, 'mcap_too_high');
+    it('passes for non-generic format regardless of confidence', () => {
+      const signal = { mint: PUMP_MINT, marketCapUsd: 0, format: 'kol_aped' };
+      const result = signalQualityCheck(signal, { minGenericConfidence: 2 });
+      assert.equal(result.pass, true);
     });
 
-    it('fails for high top10 concentration', () => {
-      const signal = { mint: PUMP_MINT, marketCapUsd: 50000, top10Percent: 60 };
-      const result = signalQualityCheck(signal, { maxTop10Percent: 50 });
-      assert.equal(result.pass, false);
-      assert.equal(result.reason, 'top10_concentration');
-    });
-
-    it('requires mint locked only for kol_aped format', () => {
-      const kolSignal = {
-        mint: PUMP_MINT, marketCapUsd: 50000, mintLocked: false, format: 'kol_aped',
-      };
-      const genericSignal = {
-        mint: PUMP_MINT, marketCapUsd: 50000, mintLocked: false, format: 'generic',
-      };
-      assert.equal(signalQualityCheck(kolSignal, { requireMintLocked: true }).pass, false);
-      assert.equal(signalQualityCheck(genericSignal, { requireMintLocked: true }).pass, true);
+    it('passes for generic with sufficient confidence even if mcap is 0', () => {
+      const signal = { mint: PUMP_MINT, marketCapUsd: 0, format: 'generic', confidence: 3 };
+      const result = signalQualityCheck(signal, { minGenericConfidence: 2 });
+      assert.equal(result.pass, true);
     });
   });
 });
