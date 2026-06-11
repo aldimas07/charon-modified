@@ -82,8 +82,8 @@ async function jupiterOrder({ inputMint, outputMint, amount }) {
 }
 
 function orderTransactionBase64(order) {
-  // Ultra V1: swapTransaction, V2: transaction or swapTransaction
-  return order?.swapTransaction || order?.transaction || null;
+  // Ultra V1: transaction, V2: swapTransaction or transaction
+  return order?.transaction || order?.swapTransaction || null;
 }
 
 function signTransactionBase64(transactionBase64) {
@@ -111,10 +111,11 @@ export async function executeJupiterSwap({ inputMint, outputMint, amount }) {
   if (!transaction) throw new Error('Jupiter order did not include a transaction.');
   const signedTransaction = signTransactionBase64(transaction);
   const executed = await jupiterExecute(order, signedTransaction);
-  if (executed?.status && executed.status !== 'Success') {
+  // Ultra V1: success: boolean, V2: status: 'Success'
+  if (executed?.success === false || (executed?.status && executed.status !== 'Success')) {
     throw new Error(`Jupiter execute failed: ${executed.error || executed.code || executed.status}`);
   }
-  const signature = executed?.txid || executed?.signature || executed?.txid || executed?.transactionId || null;
+  const signature = executed?.txid || executed?.signature || executed?.transactionId || null;
   if (!signature) {
     throw new Error(`Jupiter execute returned no signature (status: ${executed?.status || 'unknown'})`);
   }
