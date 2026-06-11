@@ -21,10 +21,15 @@ export function candidateSummary(candidate, decision = null) {
   const chartWindow = candidate.chart?.windows?.find(row => row.label === 'ath_context_24h_5m' && row.available)
     || candidate.chart?.windows?.find(row => row.label === 'recent_24h_5m' && row.available);
   const route = candidate.signals?.label || signalLabel(candidate.signals);
+  const tgSignal = candidate.signals?.telegramSignal;
+  const sourceInfo = tgSignal?.channelUsername
+    ? `Telegram @${tgSignal.channelUsername}${tgSignal.topicName ? ` / ${tgSignal.topicName}` : ''}`
+    : null;
   const lines = [
     `🛶 <b>Charon Candidate</b>`,
     '',
     `Signal: <b>${escapeHtml(route)}</b>`,
+    sourceInfo ? `Source: <b>${escapeHtml(sourceInfo)}</b>` : null,
     candidate.token.name || candidate.token.symbol ? `Name: <b>${escapeHtml(candidate.token.name || candidate.token.symbol)}${candidate.token.symbol && candidate.token.name ? ` (${escapeHtml(candidate.token.symbol)})` : ''}</b>` : null,
     `Token: <a href="${gmgnLink(candidate.token.mint)}">${short(candidate.token.mint)}</a>`,
     `<code>${escapeHtml(candidate.token.mint)}</code>`,
@@ -85,10 +90,15 @@ export function compactCandidateLine(row, index = null) {
   const prefix = index == null ? '' : `${index}. `;
   const name = candidate.token?.symbol || candidate.token?.name || short(candidate.token?.mint || '');
   const signal = candidate.signals?.label || signalLabel(candidate.signals);
+  const tgSignal = candidate.signals?.telegramSignal;
+  const sourceTag = tgSignal?.channelUsername
+    ? `@${tgSignal.channelUsername}${tgSignal.topicName ? `/${tgSignal.topicName}` : ''}`
+    : null;
   return [
     `${prefix}<b>${escapeHtml(name)}</b>`,
     `<a href="${gmgnLink(candidate.token.mint)}">${short(candidate.token.mint)}</a>`,
     escapeHtml(signal),
+    sourceTag ? `src: ${escapeHtml(sourceTag)}` : null,
     `mcap ${fmtUsd(candidate.metrics?.marketCapUsd)}`,
     `liq ${fmtUsd(candidate.metrics?.liquidityUsd)}`,
     candidate.bondingCurve ? `grad ${candidate.bondingCurve.graduationPercent}%` : null,
@@ -117,10 +127,20 @@ export function formatPosition(position) {
     : position.entry_mcap && position.high_water_mcap
       ? (Number(position.high_water_mcap) / Number(position.entry_mcap) - 1) * 100
       : 0;
+  // Extract source info from snapshot_json
+  let sourceInfo = null;
+  try {
+    const snap = typeof position.snapshot_json === 'string' ? JSON.parse(position.snapshot_json) : position.snapshot_json;
+    const tg = snap?.candidate?.signals?.telegramSignal;
+    if (tg?.channelUsername) {
+      sourceInfo = `@${tg.channelUsername}${tg.topicName ? ` / ${tg.topicName}` : ''}`;
+    }
+  } catch {}
   return [
     `📍 <b>${escapeHtml(position.symbol || short(position.mint))}</b> #${position.id}`,
     `Token: <a href="${gmgnLink(position.mint)}">${short(position.mint)}</a>`,
     `Status: <b>${escapeHtml(position.status)}</b> · Mode: <b>${escapeHtml(position.execution_mode || 'dry_run')}</b> · Strategy: <b>${escapeHtml(position.strategy_id || 'sniper')}</b>`,
+    sourceInfo ? `Source: <b>Telegram ${escapeHtml(sourceInfo)}</b>` : null,
     position.entry_signature ? `Entry TX: <a href="${txLink(position.entry_signature)}">${short(position.entry_signature)}</a>` : null,
     `Entry mcap: ${fmtUsd(position.entry_mcap)} · High: ${fmtUsd(position.high_water_mcap)}`,
     `Size: ${fmtSol(position.size_sol)} SOL · PnL: ${fmtPct(pnl)}`,

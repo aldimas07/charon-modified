@@ -23,6 +23,8 @@ let client = null;
 let candidateHandler = null;
 let degenHandler = null;
 const seenMints = new Map(); // mint → timestamp (dedup)
+const topicCache = new Map(); // channelUsername → { topics: [], fetchedAt: number }
+const TOPIC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 
 export function setCandidateHandler(fn) { candidateHandler = fn; }
 export function setDegenHandler(fn) { degenHandler = fn; }
@@ -61,16 +63,49 @@ async function handleMessage(event) {
   try {
     const msg = event.message;
     if (!msg?.text) return;
-     // Topic filter: per-channel topic filtering from channel_topics table
+     // Channel metadata for source tracking
+     const msgChannel = msg.chat?.username || '';
+     const msgChannelTitle = msg.chat?.title || msgChannel || '';
+     // Topic resolution: always resolve topic name regardless of filter state
      const msgTopicId = String(msg.replyTo?.replyToTopId || msg.replyTo?.replyToMsgId || '');
+     let matchedTopicName = null;
      if (msgTopicId) {
-       // Determine which channel this message is from
-       const msgChannel = event.message?.chat?.username || '';
        const { db } = await import('../db/connection.js');
+       // 1. Try to get topic name from channel_topics table (any, not just enabled)
+       const existingTopic = db.prepare(
+         'SELECT topic_name FROM channel_topics WHERE channel_username = ? AND topic_id = ?'
+       ).get(msgChannel, msgTopicId);
+       const isGenericName = !existingTopic?.topic_name || existingTopic.topic_name === `Topic ${msgTopicId}`;
+       if (!isGenericName) {
+         matchedTopicName = existingTopic.topic_name;
+       } else if (client && msgChannel) {
+         // 2. Generic/missing name — fetch from Telegram (with cache) and store
+         try {
+           let topics;
+           const cached = topicCache.get(msgChannel);
+           if (cached && (now() - cached.fetchedAt) < TOPIC_CACHE_TTL_MS) {
+             topics = cached.topics;
+           } else {
+             topics = await fetchChannelTopics(msgChannel);
+             topicCache.set(msgChannel, { topics, fetchedAt: now() });
+           }
+           const found = topics.find(t => t.id === msgTopicId);
+           if (found?.title && found.title !== `Topic ${msgTopicId}`) {
+             matchedTopicName = found.title;
+             db.prepare(
+               `INSERT INTO channel_topics (channel_username, topic_id, topic_name, enabled, discovered_at_ms)
+                VALUES (?, ?, ?, COALESCE((SELECT enabled FROM channel_topics WHERE channel_username = ? AND topic_id = ?), 0), ?)
+                ON CONFLICT(channel_username, topic_id) DO UPDATE SET topic_name = excluded.topic_name`
+             ).run(msgChannel, msgTopicId, found.title, msgChannel, msgTopicId, now());
+           }
+         } catch (e) {
+           console.log(`[tg:signal] topic resolve failed for ${msgChannel}/${msgTopicId}: ${e.message}`);
+         }
+       }
+       // 3. Enforce topic filter: only pass messages from enabled topics if filter is active
        const enabledTopics = db.prepare(
          'SELECT topic_id FROM channel_topics WHERE channel_username = ? AND enabled = 1'
        ).all(msgChannel);
-       // If we have topic filters for this channel, enforce them
        if (enabledTopics.length > 0) {
          const allowed = new Set(enabledTopics.map(r => r.topic_id));
          if (!allowed.has(msgTopicId)) return;
@@ -104,7 +139,7 @@ async function handleMessage(event) {
     }
 
     // Store signal event
-    storeSignalEvent(parsed.mint, 'telegram_channel', 'blackhat_sol', {
+    storeSignalEvent(parsed.mint, 'telegram_channel', msgChannel || 'unknown', {
       kol: parsed.kol,
       symbol: parsed.symbol,
       marketCapUsd: parsed.marketCapUsd,
@@ -112,7 +147,10 @@ async function handleMessage(event) {
       ageMinutes: parsed.ageMinutes,
     });
 
-    console.log(`[tg:signal] ${parsed.symbol || parsed.mint.slice(0, 8)}... MC=$${(parsed.marketCapUsd / 1000).toFixed(1)}K KOL=${parsed.kol} Top10=${parsed.top10Percent}%`);
+    const sourceLabel = matchedTopicName
+      ? `@${msgChannel}/${matchedTopicName}`
+      : `@${msgChannel}`;
+    console.log(`[tg:signal] ${parsed.symbol || parsed.mint.slice(0, 8)}... MC=$${(parsed.marketCapUsd / 1000).toFixed(1)}K KOL=${parsed.kol} Source=${sourceLabel}`);
 
     // Trigger candidate pipeline
     if (candidateHandler) {
@@ -129,6 +167,10 @@ async function handleMessage(event) {
           ageMinutes: parsed.ageMinutes,
           mintLocked: parsed.mintLocked,
           freezeLocked: parsed.freezeLocked,
+          channelUsername: msgChannel,
+          channelTitle: msgChannelTitle,
+          topicId: msgTopicId || null,
+          topicName: matchedTopicName,
         },
       });
     }
@@ -149,14 +191,15 @@ export async function fetchChannelTopics(username) {
 
     // Try channels.getForumTopics first (gramjs raw API)
     try {
+      const { Api } = await import('telegram/tl');
       const result = await client.invoke(
-        new (await import('telegram/raw/index.js')).Api.channels.GetForumTopics({
+        new Api.channels.GetForumTopics({
           channel: entity,
           limit: 100,
         })
       );
       if (result?.topics?.length) {
-        return result.topics
+        const realTopics = result.topics
           .filter(t => t.id && t.title)
           .map(t => ({
             id: String(t.id),
@@ -164,12 +207,13 @@ export async function fetchChannelTopics(username) {
             date: t.date || 0,
           }))
           .sort((a, b) => b.date - a.date);
+        if (realTopics.length) return realTopics;
       }
     } catch (e) {
-      // GetForumTopics not available, fall through to message scanning
+      console.log(`[tg:listener] GetForumTopics failed: ${e.message}`);
     }
 
-    // Fallback: scan recent messages to discover topics
+    // Fallback: scan recent messages to discover topic IDs
     const messages = await client.getMessages(entity, { limit: 200 });
     const topicMap = new Map();
     for (const msg of messages) {
@@ -179,13 +223,31 @@ export async function fetchChannelTopics(username) {
       if (!topicMap.has(key)) {
         topicMap.set(key, {
           id: key,
-          title: 'Topic ' + key,
-          sample: (msg.text || '').split('\n')[0]?.slice(0, 60) || '',
+          topMsgId: topicId,
+          title: 'Topic ' + key, // will try to resolve below
           date: msg.date || 0,
         });
       }
     }
-    return [...topicMap.values()].sort((a, b) => b.date - a.date);
+
+    // Try to resolve topic titles from their top messages (service messages)
+    const topicEntries = [...topicMap.values()];
+    if (topicEntries.length) {
+      try {
+        const topMsgIds = topicEntries.map(t => t.topMsgId);
+        const topMessages = await client.getMessages(entity, { ids: topMsgIds });
+        for (const topic of topicEntries) {
+          const svcMsg = topMessages.find(m => m?.id === topic.topMsgId);
+          if (svcMsg?.action?.title) {
+            topic.title = svcMsg.action.title;
+          }
+        }
+      } catch (e) {
+        console.log(`[tg:listener] topic title resolve via service messages failed: ${e.message}`);
+      }
+    }
+
+    return topicEntries.sort((a, b) => b.date - a.date);
   } catch (err) {
     console.log(`[tg:listener] fetchChannelTopics error: ${err.message}`);
     return [];
