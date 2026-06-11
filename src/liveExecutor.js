@@ -69,6 +69,7 @@ async function jupiterOrder({ inputMint, outputMint, amount }) {
   url.searchParams.set('outputMint', outputMint);
   url.searchParams.set('amount', String(amount));
   url.searchParams.set('taker', liveWallet.publicKey.toBase58());
+  if (JUPITER_SLIPPAGE_BPS) url.searchParams.set('slippageBps', String(JUPITER_SLIPPAGE_BPS));
   const res = await axios.get(url.toString(), {
     timeout: 20_000,
     headers: { ...JSON_HEADERS, 'x-api-key': JUPITER_API_KEY },
@@ -81,7 +82,8 @@ async function jupiterOrder({ inputMint, outputMint, amount }) {
 }
 
 function orderTransactionBase64(order) {
-  return order?.transaction || order?.swapTransaction || null;
+  // Ultra V1: swapTransaction, V2: transaction or swapTransaction
+  return order?.swapTransaction || order?.transaction || null;
 }
 
 function signTransactionBase64(transactionBase64) {
@@ -112,7 +114,7 @@ export async function executeJupiterSwap({ inputMint, outputMint, amount }) {
   if (executed?.status && executed.status !== 'Success') {
     throw new Error(`Jupiter execute failed: ${executed.error || executed.code || executed.status}`);
   }
-  const signature = executed?.signature || executed?.txid || executed?.transactionId || null;
+  const signature = executed?.txid || executed?.signature || executed?.txid || executed?.transactionId || null;
   if (!signature) {
     throw new Error(`Jupiter execute returned no signature (status: ${executed?.status || 'unknown'})`);
   }
